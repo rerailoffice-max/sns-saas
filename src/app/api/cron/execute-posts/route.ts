@@ -1,0 +1,106 @@
+/**
+ * 予約投稿実行Cronジョブ
+ * POST /api/cron/execute-posts
+ * 毎分実行: scheduled_at <= now() のペンディング投稿を処理
+ */
+import { createAdminClient } from "@/lib/supabase/admin";
+import { getAdapter } from "@/lib/adapters/factory";
+import { decrypt } from "@/lib/encryption";
+import { NextRequest, NextResponse } from "next/server";
+
+export async function POST(request: NextRequest) {
+  // CRON_SECRET による認証
+  const authHeader = request.headers.get("authorization");
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: "認証エラー" }, { status: 401 });
+  }
+
+  const adminClient = createAdminClient();
+
+  // 実行待ちの予約投稿を取得（最大10件ずつ処理）
+  const { data: posts, error } = await adminClient
+    .from("scheduled_posts")
+    .select("*, drafts(*), social_accounts:account_id(*)")
+    .eq("status", "pending")
+    .lte("scheduled_at", new Date().toISOString())
+    .order("scheduled_at", { ascending: true })
+    .limit(10);
+
+  if (error || !posts) {
+    console.error("予約投稿取得エラー:", error);
+    return NextResponse.json({ error: "取得に失敗しました" }, { status: 500 });
+  }
+
+  const results = { success: 0, failed: 0 };
+
+  for (const post of posts) {
+    try {
+      // ステータスを「処理中」に更新
+      await adminClient
+        .from("scheduled_posts")
+        .update({ status: "publishing" })
+        .eq("id", post.id);
+
+      // トークン復号化
+      const account = post.social_accounts;
+      const accessToken = decrypt(account.access_token_enc);
+
+      // SNSアダプターで投稿
+      const adapter = getAdapter(account.platform);
+      const result = await adapter.createPost(accessToken, {
+        text: post.drafts.text,
+        media_urls: post.drafts.media_urls ?? [],
+      });
+
+      // 成功: ステータス更新
+      await adminClient
+        .from("scheduled_posts")
+        .update({
+          status: "published",
+          platform_post_id: result.platform_post_id,
+          published_at: new Date().toISOString(),
+        })
+        .eq("id", post.id);
+
+      // 下書きステータスも更新
+      await adminClient
+        .from("drafts")
+        .update({ status: "published" })
+        .eq("id", post.draft_id);
+
+      results.success++;
+    } catch (err) {
+      console.error(`予約投稿失敗 [${post.id}]:`, err);
+
+      // リトライ回数を確認
+      const retryCount = (post.retry_count ?? 0) + 1;
+
+      if (retryCount >= 3) {
+        // 最大リトライ超過: デッドレターに移動
+        await adminClient.from("dead_letters").insert({
+          scheduled_post_id: post.id,
+          error_message: err instanceof Error ? err.message : "不明なエラー",
+          retry_count: retryCount,
+        });
+
+        await adminClient
+          .from("scheduled_posts")
+          .update({ status: "failed", retry_count: retryCount })
+          .eq("id", post.id);
+      } else {
+        // リトライ: ステータスをpendingに戻す
+        await adminClient
+          .from("scheduled_posts")
+          .update({ status: "pending", retry_count: retryCount })
+          .eq("id", post.id);
+      }
+
+      results.failed++;
+    }
+  }
+
+  return NextResponse.json({
+    processed: posts.length,
+    ...results,
+  });
+}

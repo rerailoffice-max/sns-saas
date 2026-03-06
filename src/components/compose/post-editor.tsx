@@ -1,0 +1,229 @@
+"use client";
+
+/**
+ * 投稿エディタコンポーネント
+ * テキスト入力・文字数カウント・アカウント選択・下書き保存
+ */
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { CharCounter } from "./char-counter";
+import { PostPreview } from "./post-preview";
+import { Save, Send, Loader2, AlertCircle } from "lucide-react";
+import { toast } from "sonner";
+
+interface Account {
+  id: string;
+  platform: string;
+  username: string;
+  display_name: string | null;
+}
+
+interface PostEditorProps {
+  accounts: Account[];
+}
+
+const MAX_CHARS = 500; // Threads文字数制限
+
+export function PostEditor({ accounts }: PostEditorProps) {
+  const router = useRouter();
+  const [text, setText] = useState("");
+  const [selectedAccountId, setSelectedAccountId] = useState(accounts[0]?.id ?? "");
+  const [isSaving, setIsSaving] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const charCount = text.length;
+  const isOverLimit = charCount > MAX_CHARS;
+  const canSubmit = text.trim().length > 0 && selectedAccountId && !isOverLimit;
+
+  // ハッシュタグ抽出
+  const hashtags = text.match(/#[\w\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]+/g) ?? [];
+
+  /** 下書き保存 */
+  const handleSaveDraft = async () => {
+    if (!canSubmit) return;
+    setIsSaving(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/drafts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          account_id: selectedAccountId,
+          text,
+          hashtags,
+          source: "manual",
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error ?? "保存に失敗しました");
+      }
+
+      toast.success("下書きを保存しました");
+      router.push("/drafts");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "保存に失敗しました");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  /** 即時投稿 */
+  const handlePublish = async () => {
+    if (!canSubmit) return;
+    setIsPublishing(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/posts/publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          account_id: selectedAccountId,
+          text,
+          hashtags,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error ?? "投稿に失敗しました");
+      }
+
+      toast.success("投稿しました！");
+      router.push("/dashboard");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "投稿に失敗しました");
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
+  if (accounts.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center">
+          <AlertCircle className="mx-auto h-12 w-12 text-muted-foreground" />
+          <h3 className="mt-4 text-lg font-medium">SNSアカウントが接続されていません</h3>
+          <p className="mt-2 text-sm text-muted-foreground">
+            投稿するには、まずSNSアカウントを接続してください。
+          </p>
+          <Button
+            variant="outline"
+            className="mt-4"
+            onClick={() => router.push("/settings/accounts")}
+          >
+            アカウントを接続
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-2">
+      {/* エディタ */}
+      <div className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">投稿内容</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* アカウント選択 */}
+            <div>
+              <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="投稿するアカウントを選択" />
+                </SelectTrigger>
+                <SelectContent>
+                  {accounts.map((account) => (
+                    <SelectItem key={account.id} value={account.id}>
+                      <span className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-xs capitalize">
+                          {account.platform}
+                        </Badge>
+                        @{account.username}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* テキスト入力 */}
+            <div>
+              <Textarea
+                placeholder="いま何を考えていますか？"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                className="min-h-[200px] resize-none"
+              />
+              <div className="mt-2 flex items-center justify-between">
+                <div className="flex gap-1">
+                  {hashtags.map((tag, i) => (
+                    <Badge key={i} variant="secondary" className="text-xs">
+                      {tag}
+                    </Badge>
+                  ))}
+                </div>
+                <CharCounter current={charCount} max={MAX_CHARS} />
+              </div>
+            </div>
+
+            {/* エラー表示 */}
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
+            {/* アクションボタン */}
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={handleSaveDraft}
+                disabled={!canSubmit || isSaving || isPublishing}
+              >
+                {isSaving ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="mr-2 h-4 w-4" />
+                )}
+                下書き保存
+              </Button>
+              <Button
+                onClick={handlePublish}
+                disabled={!canSubmit || isSaving || isPublishing}
+              >
+                {isPublishing ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="mr-2 h-4 w-4" />
+                )}
+                投稿する
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* プレビュー */}
+      <div>
+        <PostPreview
+          text={text}
+          username={accounts.find((a) => a.id === selectedAccountId)?.username ?? "user"}
+          displayName={accounts.find((a) => a.id === selectedAccountId)?.display_name ?? "ユーザー"}
+        />
+      </div>
+    </div>
+  );
+}
