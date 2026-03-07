@@ -1,0 +1,255 @@
+⛔ 最重要ルール: cron delete/remove/disable は絶対禁止。エラーでもcronには触れない。
+⛔ チャンネルへの直接投稿禁止。必ずDMで承認を得てから投稿。
+
+===== メッセージ送信（全STEP共通） =====
+DM:      openclaw message send --channel discord --target "user:895089775726428160" --message "テキスト"
+DM+画像:  openclaw message send --channel discord --target "user:895089775726428160" --message "テキスト" --media "ファイルパス"
+CH投稿:   openclaw message send --channel discord --target "1432663929439522856" --message "テキスト"
+CH+画像:  openclaw message send --channel discord --target "1432663929439522856" --message "テキスト" --media "ファイルパス"
+※ 内部の message ツールは使わない（Unknown Channel エラーが出るため）
+
+===== STEP 0: 前回下書きチェック =====
+/Users/OpenClaw/.openclaw/workspace/drafts/latest-draft.json を確認:
+
+■ status = "approved" → 投稿処理
+1. draft_text をチャンネル投稿（media_files 配列のファイルも1件ずつ --media で投稿）
+2. node /Users/OpenClaw/ai-news-bot/threads-post.js --draft 2>&1（Threads投稿）
+3. latest-draft.json の status を "posted" に更新
+4. 管理者DMに「✅ 承認済み下書きを投稿しました」と報告
+5. STEP 1へ
+
+■ status = "pending"（未承認）→ ideas.json に追記してlatest-draft.json を削除 → STEP 1へ
+■ ファイルなし or status = "posted" → そのままSTEP 1へ
+
+===== STEP 1: X Pro全カラム + xurl でインフルエンサー投稿収集 =====
+
+【段階1（必須）: ブラウザで X Pro デッキを開き全カラム走査】
+URL: https://pro.x.com/i/decks/1968354160283427121
+
+手順:
+1. ブラウザでURLを開きスクリーンショットを撮る
+2. 見えている各カラムのアカウント名（@xxx）をリスト化 + 投稿概要を記録
+3. browser press ArrowRight → スクリーンショット → 新カラムをリストに追加
+4. 新カラムが出なくなるまで繰り返す（最低10回スクロール）
+5. 全アカウントリストを column-accounts.json に保存:
+   bash: python3 -c "
+   import json; from datetime import datetime
+   data = {'updated_at': datetime.now().isoformat(), 'accounts': ['@acc1','@acc2']}
+   json.dump(data, open('/Users/OpenClaw/ai-news-bot/column-accounts.json','w'), ensure_ascii=False, indent=2)
+   "
+※ keyboard.press("Page_Down") は使わない。横スクロールは ArrowRight のみ
+
+【段階2: xurl で全アカウントの最新投稿を取得】
+bash: /Users/OpenClaw/.local/bin/xurl search "from:アカウント名" --max-results 10 2>&1
+※ 段階1で収集した全アカウントを1件ずつ実行。2〜3人で終わらせない
+※ "CreditsDepleted" エラーの場合は段階1のブラウザ情報のみで進む
+→ 各投稿: テキスト概要・エンゲージメント（public_metrics）・メディア有無・投稿日時を記録
+
+STEP 7のレポートDMに「確認カラム数: N / 検索アカウント数: N / アカウント名一覧」を含めること
+
+===== STEP 2: 重複チェック =====
+Discordチャンネル(1432663929439522856)の直近15件を確認し、同テーマの投稿がないか確認する。
+
+===== STEP 3: テーマ選定 =====
+
+【投稿OK/NG の核心判定】
+✅ OK: 情報源が「企業の公式発表」「報道機関の記事」「調査データ」のいずれか
+❌ NG: 元ネタが「個人の投稿・発信・作品・手法・ノウハウ」→ ideas.json に保存して次へ
+
+NG例: インフルエンサーの手法・解説・作品・YouTube・書籍・プロンプト術・「〇〇さんがXXした」系
+OK例: 「Kling 3.0リリース」「Anthropic が〇〇発表」「業界調査データ」「新モデル発表」
+
+【カテゴリバランス（直近投稿と偏らないよう選ぶ）】
+A. 🎬 AI動画・画像生成ツールの公式発表
+B. 🛠️ AIツールの新機能・アップデート
+C. 📰 業界ニュース・速報
+D. 💡 AI活用事例・ビジネスデータ
+E. 🔬 技術トレンド
+
+【テーマが見つからない場合】→ 下書き作成せずSTEP 7のレポートDMのみ送る
+
+【ideas.json への保存（NGテーマ・ネタを随時保存）】
+bash: python3 -c "
+import json; from datetime import datetime
+path = '/Users/OpenClaw/.openclaw/workspace/drafts/ideas.json'
+ideas = json.load(open(path))
+ideas.append({'date': datetime.now().isoformat(), 'theme': 'テーマ名', 'summary': '概要', 'type': 'news'})
+json.dump(ideas, open(path,'w'), ensure_ascii=False, indent=2)
+"
+
+===== STEP 4: 元投稿を開いてメディア取得（必須・スキップ禁止）=====
+
+【基本確認】
+- 投稿のURLを開き、投稿者@xxx・本文・リンク・画像/動画の有無を確認
+- 投稿者本人のスレッド（リプライ）があれば全部読む（他ユーザーのリプライ・おすすめは無視）
+
+【メディア取得: 優先順】
+
+■ 方法0（動画最優先）: yt-dlp
+bash: export PATH="/Users/OpenClaw/Library/Python/3.9/bin:$PATH" && yt-dlp -f "best[ext=mp4][filesize<8M]/best[ext=mp4]" -o "/Users/OpenClaw/.openclaw/workspace/post_video.mp4" "https://x.com/ユーザー名/status/TWEET_ID" 2>&1
+→ 成功でMP4保存。8MB超えは --max-filesize 8M で再試行。失敗なら方法1へ
+
+■ 方法1（画像最優先）: ブラウザDOM
+1. openclaw browser navigate "https://x.com/ユーザー名/status/TWEET_ID" --browser-profile openclaw
+2. sleep 3 → スクリーンショットで確認
+3. DOM評価で画像/動画URL一覧を取得（article[data-testid="tweet"] 内の img[src*="pbs.twimg.com/media"] と video 要素）
+4. 画像URLは ?name=large を付けて取得
+
+■ 方法2（補助）: xurl read
+bash: /Users/OpenClaw/.local/bin/xurl read TWEET_ID 2>&1
+→ includes.media[] から type="video" の variants[] → content_type="video/mp4" の最高bit_rateを選択
+
+■ 方法2.5: OEmbed（サムネイルのみ）
+bash: curl -s "https://publish.twitter.com/oembed?url=https://x.com/ユーザー名/status/TWEET_ID" 2>&1
+
+■ 方法3（最終手段）: nano-banana-2 で自動生成（「画像なし投稿」は禁止）
+
+【古いファイルの削除（毎回最初に実行）】
+bash: rm -f /Users/OpenClaw/.openclaw/workspace/post_image_{1,2,3,4}.jpg /Users/OpenClaw/.openclaw/workspace/post_video.mp4
+
+【ダウンロード】
+bash: curl -L -o /Users/OpenClaw/.openclaw/workspace/post_image_1.jpg "画像URL_1"
+bash: curl -L -o /Users/OpenClaw/.openclaw/workspace/post_image_2.jpg "画像URL_2"
+bash: curl -L -o /Users/OpenClaw/.openclaw/workspace/post_video.mp4 "動画URL"
+→ ls -la で0バイトチェック。0バイトなら削除して方法3（自動生成）へ
+→ 動画が8MB超えの場合はサムネイル画像のみ使用
+
+【画像自動生成ルール（方法3）】
+- nano-banana-2（gemini-3.1-image-flash）を使用
+- 画像内テキストは全て日本語（英語禁止）
+- スタイル: クリーンなビジネス向けインフォグラフィック、16:9横長、明るい背景
+- 見出し+キーポイント3〜5個、フラットデザイン
+- プロンプトは日本語で書く（「infographic about...」は禁止）
+- 生成後: cp "生成パス" /Users/OpenClaw/.openclaw/workspace/post_image_1.jpg
+
+===== STEP 5: 下書き作成 + プレビュー送信 =====
+
+【下書きテキスト作成】（STEP 6フォーマット参照）
+draft_text 必須要素:
+1. タイトル行: 「### 🔥 【タイトル】」
+2. 本文（2〜4段落）
+3. 末尾リンク: 「🔗 [記事タイトル](URL)」
+
+【下書きJSONに保存】（制御文字エラー回避のため必ず2ステップで保存）
+手順1: bash: cat > /tmp/draft_text.txt << 'DRAFT_END'
+（下書きテキスト全文）
+DRAFT_END
+
+手順2:
+bash: python3 << 'PYEOF'
+import json, glob, os; from datetime import datetime
+draft_text = open("/tmp/draft_text.txt").read().strip()
+images = [f for f in sorted(glob.glob("/Users/OpenClaw/.openclaw/workspace/post_image_*.jpg")) if os.path.getsize(f) > 0]
+video = "/Users/OpenClaw/.openclaw/workspace/post_video.mp4"
+media_files = images + ([video] if os.path.exists(video) and os.path.getsize(video) > 0 else [])
+draft = {
+    "status": "pending", "threads_status": "pending",
+    "theme": "★ここを書き換える★",
+    "draft_text": draft_text, "threads_posts": [],
+    "image_urls": [], "media_files": media_files, "media_count": len(media_files),
+    "links": ["★ここを書き換える★"], "created_at": datetime.now().isoformat()
+}
+json.dump(draft, open("/Users/OpenClaw/.openclaw/workspace/drafts/latest-draft.json","w"), ensure_ascii=False, indent=2)
+os.remove("/tmp/draft_text.txt")
+print(f"saved with {len(media_files)} media files")
+PYEOF
+⚠️ "theme" と "links" は実行前に必ず正しい値に書き換える
+
+【Threads版テキスト作成（必須・スキップ禁止）】
+以下の構成で作成し、threads_posts 配列に格納:
+- 投稿1（フック + URL直書き + 画像）: 驚き/興味を引く文→URL→「要点は以下の通り。」等で締める。500字以内
+- 投稿2（詳細）: 導入文不要。①②③で直接リスト化。500字以内
+- 投稿3（深掘り/まとめ）: 「ここが一番重要なんだけど...」で深掘り。500字以内
+※ マークダウン不可・ハッシュタグ不要・情報源非表示
+
+threads_posts をJSONに追加（必須・スキップ禁止）:
+bash: python3 << 'PYEOF'
+import json
+draft_path = "/Users/OpenClaw/.openclaw/workspace/drafts/latest-draft.json"
+draft = json.load(open(draft_path))
+draft["threads_posts"] = [
+    "★投稿1テキスト（フック+URL）★",
+    "★投稿2テキスト（①②③リスト）★",
+    "★投稿3テキスト（深掘り/まとめ）★"
+]
+if not any(p.strip() for p in draft["threads_posts"]):
+    raise ValueError("threads_posts が空。テキストを書き換えてから実行")
+json.dump(draft, open(draft_path,"w"), ensure_ascii=False, indent=2)
+print(f"threads_posts added: {len(draft['threads_posts'])} posts")
+PYEOF
+
+【プレビュー送信（3箇所全て必須）】
+■1 管理者DM:
+bash: openclaw message send --channel discord --target "user:895089775726428160" --message "📝 **下書きプレビュー**
+---
+（下書きテキスト全文）
+---
+メディア: 画像N枚 / 動画あり/なし
+✅ 「投稿して」で投稿 ❌ 返信なしで次回保存 💡 修正指示があれば返信"
+※ メディアがある場合: 1件目は --media で添付、2件目以降は追加DMで送信
+
+■2+3 #discord-drafts と #threads-drafts（必須・DMの直後に実行）:
+bash: cd /Users/OpenClaw/ai-news-bot && node send-draft-preview.js 2>&1
+
+===== STEP 6: 投稿フォーマット =====
+
+【レイアウト】
+1. タイトル＋本文（テキスト全体）
+2. 画像（--media パラメータ）
+3. 参照リンク（一番下）
+
+【フォーマット例】
+### 🔥 【タイトル】
+
+（冒頭パターン）これ見た時ちょっと震えた...
+（本文: 関連する内容を2〜3文で1段落にまとめる）
+
+> 💡 __**重要ポイント**__ を引用ブロックで強調
+
+▸ ポイント1
+▸ ポイント2
+
+🔗 [記事タイトル](URL)
+
+===== STEP 7: 調査レポート DM送信 =====
+bash: openclaw message send --channel discord --target "user:895089775726428160" --message "レポートテキスト"
+
+レポート内容:
+- 確認カラム数・検索アカウント数・アカウント名一覧
+- 各アカウントの取得投稿数
+- 重要トピック候補（最大5件）＋カテゴリ（🎬/🛠️/📰/💡/🔬）
+- 選定テーマと選定理由（カテゴリバランス含む）
+- メディア取得結果（方法0/1/2/3 各成功/失敗/取得数）
+- ideas.json 追加件数
+
+===== 文体ルール =====
+
+【冒頭（毎回変える・6パターン）】
+A. 感想先行: 「〇〇試してみたんだけど、マジで別物だった」
+B. 驚き: 「正直これ見た時、ちょっと震えた...」
+C. 問いかけ: 「〇〇使ってる人、これ知ってた？」
+D. 速報: 「〇〇が〇〇を発表。これ、かなりデカい」
+E. ランキング: 「今週で一番インパクトあったのがこのニュース」
+F. 有益発見: 「〇〇が無料公開されてて有益だった...」
+※「これ、マジでやばいやつ来た」を毎回使うのは禁止
+
+【文章ルール】
+- 具体的な数字を冒頭付近に配置（「1,100億ドル」「300%成長」等）
+- 関連する内容は2〜3文を1段落にまとめる（ぶつ切り禁止）
+- 事実の後に見解/問いかけを1〜2文追加
+- 適度にくだけた表現（「マジで」「えぐい」「〜なんだけど」「〜だった...」）
+- 硬い文末は避ける（「〜なんだよね」「〜してくれる」「〜ってこと」等）
+- 句読点（。）の後は改行
+
+===== 禁止事項 =====
+- cronジョブの削除・無効化・編集（cron delete/remove/disable/edit は絶対禁止）
+- 情報源の記載（アカウント名・メディア名、「〇〇によると」「〇〇が報じた」）
+- AI的比喩表現（「境界線が溶けた」「新たな地平」「パラダイムシフト」等）
+- 詩的・哲学的な表現
+- 1回で複数テーマ投稿（「10選」「まとめ」形式）
+- STEP 4をスキップして投稿
+- Webページのスクリーンショットを画像として使用
+- ダミー画像（via.placeholder.com等）の使用
+- リンクを文章の途中に入れる（リンクは必ず一番下）
+- 画像を文章の途中に入れる
+- チャンネルへの直接投稿（必ずDMで承認を得てから投稿）
