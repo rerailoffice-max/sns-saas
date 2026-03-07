@@ -6,7 +6,7 @@
  */
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, AlertCircle } from "lucide-react";
+import { Plus, AlertCircle, Sparkles, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -27,6 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { ModelCard } from "@/components/models/model-card";
 import type { ModelAccount, SubscriptionPlan, Platform } from "@/types/database";
 
@@ -34,22 +35,53 @@ interface ModelListClientProps {
   models: ModelAccount[];
   plan: SubscriptionPlan;
   maxModelAccounts: number;
+  postCounts?: Record<string, number>;
 }
 
 export function ModelListClient({
   models,
   plan,
   maxModelAccounts,
+  postCounts = {},
 }: ModelListClientProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [platform, setPlatform] = useState<Platform>("threads");
   const [username, setUsername] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isBulkAnalyzing, setIsBulkAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<"all" | "analyzed" | "unanalyzed">("all");
 
   // プラン制限に達しているか
   const isLimitReached = models.length >= maxModelAccounts;
+
+  // フィルター適用
+  const filteredModels = models.filter((m) => {
+    if (filterStatus === "analyzed") return !!m.analysis_result;
+    if (filterStatus === "unanalyzed") return !m.analysis_result;
+    return true;
+  });
+
+  // 未分析モデル数
+  const unanalyzedCount = models.filter((m) => !m.analysis_result).length;
+
+  /** 全モデルを一括AI分析 */
+  const handleBulkAnalyze = async () => {
+    const targets = models.filter((m) => !m.analysis_result);
+    if (targets.length === 0) return;
+    setIsBulkAnalyzing(true);
+    try {
+      for (const m of targets) {
+        await fetch(`/api/models/${m.id}/analyze`, { method: "POST" });
+      }
+      router.refresh();
+    } catch {
+      // エラーは無視（個別のエラーはサーバーログに記録済み）
+    } finally {
+      setIsBulkAnalyzing(false);
+    }
+  };
 
   /** モデルアカウント登録 */
   const handleSubmit = async () => {
@@ -98,13 +130,30 @@ export function ModelListClient({
           </p>
         </div>
 
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button disabled={isLimitReached}>
-              <Plus className="mr-2 h-4 w-4" />
-              アカウント追加
+        <div className="flex items-center gap-2">
+          {/* 一括分析ボタン */}
+          {models.length > 0 && unanalyzedCount > 0 && (
+            <Button
+              variant="outline"
+              onClick={handleBulkAnalyze}
+              disabled={isBulkAnalyzing}
+            >
+              {isBulkAnalyzing ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="mr-2 h-4 w-4" />
+              )}
+              {isBulkAnalyzing ? "分析中..." : `一括分析（${unanalyzedCount}件）`}
             </Button>
-          </DialogTrigger>
+          )}
+
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button disabled={isLimitReached}>
+                <Plus className="mr-2 h-4 w-4" />
+                アカウント追加
+              </Button>
+            </DialogTrigger>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>モデルアカウントを追加</DialogTitle>
@@ -181,8 +230,36 @@ export function ModelListClient({
               </Button>
             </DialogFooter>
           </DialogContent>
-        </Dialog>
+          </Dialog>
+        </div>
       </div>
+
+      {/* フィルター */}
+      {models.length > 0 && (
+        <div className="flex items-center gap-2">
+          <Badge
+            variant={filterStatus === "all" ? "default" : "outline"}
+            className="cursor-pointer"
+            onClick={() => setFilterStatus("all")}
+          >
+            すべて ({models.length})
+          </Badge>
+          <Badge
+            variant={filterStatus === "analyzed" ? "default" : "outline"}
+            className="cursor-pointer"
+            onClick={() => setFilterStatus("analyzed")}
+          >
+            分析済み ({models.length - unanalyzedCount})
+          </Badge>
+          <Badge
+            variant={filterStatus === "unanalyzed" ? "default" : "outline"}
+            className="cursor-pointer"
+            onClick={() => setFilterStatus("unanalyzed")}
+          >
+            未分析 ({unanalyzedCount})
+          </Badge>
+        </div>
+      )}
 
       {/* プラン制限の注意表示 */}
       {isLimitReached && (
@@ -208,11 +285,15 @@ export function ModelListClient({
       )}
 
       {/* モデルカード一覧 */}
-      {models.length > 0 ? (
+      {filteredModels.length > 0 ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {models.map((model) => (
-            <ModelCard key={model.id} model={model} />
+          {filteredModels.map((model) => (
+            <ModelCard key={model.id} model={model} postCount={postCounts[model.id]} />
           ))}
+        </div>
+      ) : models.length > 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
+          <p className="text-muted-foreground">フィルター条件に一致するモデルがありません</p>
         </div>
       ) : (
         maxModelAccounts > 0 && (

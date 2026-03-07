@@ -14,7 +14,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { TrendingUp, Users, FileText, Calendar } from "lucide-react";
+import { TrendingUp, Users, FileText, Calendar, Target } from "lucide-react";
+import { getOptimalTimings, type TimingRecommendation } from "@/lib/optimal-timing";
 import { FollowersChart } from "@/components/dashboard/followers-chart";
 import { EngagementChart } from "@/components/dashboard/engagement-chart";
 import { RecentPosts } from "@/components/dashboard/recent-posts";
@@ -72,6 +73,11 @@ export default async function DashboardPage({
         periodDays={30}
         accountCount={1}
         hasAccounts={true}
+        optimalTimings={[
+          { dayIndex: 2, dayName: "水", hour: 8, avgEngagement: 45, postCount: 3 },
+          { dayIndex: 0, dayName: "月", hour: 12, avgEngagement: 38, postCount: 4 },
+          { dayIndex: 4, dayName: "金", hour: 19, avgEngagement: 32, postCount: 2 },
+        ]}
       />
     );
   }
@@ -154,7 +160,7 @@ export default async function DashboardPage({
   if (hasAccounts) {
     const { data: insights } = await supabase
       .from("post_insights")
-      .select("id, platform_post_id, posted_at, likes, replies, reposts, impressions")
+      .select("id, platform_post_id, post_text, posted_at, likes, replies, reposts, impressions")
       .in("account_id", accountIds)
       .gte("posted_at", startDate.toISOString())
       .order("posted_at", { ascending: false });
@@ -170,7 +176,7 @@ export default async function DashboardPage({
       // 直近10件
       recentPosts = insights.slice(0, 10).map((p) => ({
         id: p.id,
-        text: p.platform_post_id ?? "",
+        text: p.post_text ?? p.platform_post_id ?? "",
         posted_at: p.posted_at ?? new Date().toISOString(),
         likes: p.likes ?? 0,
         replies: p.replies ?? 0,
@@ -245,6 +251,19 @@ export default async function DashboardPage({
       ? ((totalLikes + totalReplies + totalReposts) / postCount).toFixed(1)
       : "-";
 
+  // 最適投稿時間レコメンド
+  const optimalTimings = hasAccounts
+    ? getOptimalTimings(
+        recentPosts.map((p) => ({
+          posted_at: p.posted_at,
+          likes: p.likes,
+          replies: p.replies,
+          reposts: p.reposts,
+        })),
+        3
+      )
+    : [];
+
   return (
     <DashboardView
       followerData={followerData}
@@ -257,6 +276,7 @@ export default async function DashboardPage({
       periodDays={periodDays}
       accountCount={accountIds.length}
       hasAccounts={hasAccounts}
+      optimalTimings={optimalTimings}
     />
   );
 }
@@ -273,6 +293,7 @@ function DashboardView({
   periodDays,
   accountCount,
   hasAccounts,
+  optimalTimings = [],
 }: {
   followerData: Array<{ date: string; count: number }>;
   engagementData: Array<{
@@ -297,6 +318,7 @@ function DashboardView({
   periodDays: number;
   accountCount: number;
   hasAccounts: boolean;
+  optimalTimings?: TimingRecommendation[];
 }) {
   return (
     <div className="space-y-6">
@@ -389,16 +411,65 @@ function DashboardView({
         </Card>
       </div>
 
-      {/* 最近の投稿 */}
-      <Card>
-        <CardHeader>
-          <CardTitle>最近の投稿</CardTitle>
-          <CardDescription>直近の投稿とそのパフォーマンス</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <RecentPosts posts={recentPosts} />
-        </CardContent>
-      </Card>
+      <div className="grid gap-4 lg:grid-cols-2">
+        {/* 最近の投稿 */}
+        <Card>
+          <CardHeader>
+            <CardTitle>最近の投稿</CardTitle>
+            <CardDescription>直近の投稿とそのパフォーマンス</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <RecentPosts posts={recentPosts} />
+          </CardContent>
+        </Card>
+
+        {/* 🎯 おすすめ投稿時間 */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Target className="h-5 w-5 text-blue-500" />
+              おすすめ投稿時間
+            </CardTitle>
+            <CardDescription>
+              過去データから算出した最適な投稿タイミング
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {optimalTimings.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                データが蓄積されるとレコメンドが表示されます
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {optimalTimings.map((timing, index) => (
+                  <div
+                    key={`${timing.dayIndex}-${timing.hour}`}
+                    className="flex items-center justify-between rounded-lg border p-3"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-lg font-bold text-primary">
+                        {index + 1}
+                      </span>
+                      <div>
+                        <p className="font-medium">
+                          {timing.dayName}曜日 {timing.hour}:00
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {timing.postCount}件のデータに基づく
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-bold">{timing.avgEngagement}</p>
+                      <p className="text-xs text-muted-foreground">平均反応</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

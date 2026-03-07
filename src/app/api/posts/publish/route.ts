@@ -156,6 +156,26 @@ export async function POST(request: NextRequest) {
         .eq("id", draftId);
     }
 
+    // post_insights に初期レコードを作成（投稿本文・URL付き）
+    await adminClient.from("post_insights").upsert(
+      {
+        account_id: body.account_id,
+        platform_post_id: result.platform_post_id,
+        post_text: draftText,
+        post_url: result.post_url,
+        likes: 0,
+        replies: 0,
+        reposts: 0,
+        quotes: 0,
+        impressions: 0,
+        text_length: draftText.length,
+        hashtag_count: (draftText.match(/#/g) ?? []).length,
+        posted_at: result.published_at,
+        fetched_at: new Date().toISOString(),
+      },
+      { onConflict: "account_id,platform_post_id" }
+    );
+
     return NextResponse.json({
       data: {
         platform_post_id: result.platform_post_id,

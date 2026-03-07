@@ -93,7 +93,7 @@ export default async function AnalyticsPage() {
     const { data: insights } = await supabase
       .from("post_insights")
       .select(
-        "id, platform_post_id, posted_at, likes, replies, reposts, impressions, ai_category"
+        "id, platform_post_id, post_text, posted_at, likes, replies, reposts, impressions, ai_category"
       )
       .in("account_id", accountIds)
       .gte("posted_at", startDate.toISOString())
@@ -106,7 +106,7 @@ export default async function AnalyticsPage() {
       rankedPosts = insights
         .map((p) => ({
           id: p.id,
-          text: p.platform_post_id ?? "",
+          text: p.post_text ?? p.platform_post_id ?? "",
           posted_at: p.posted_at ?? new Date().toISOString(),
           likes: p.likes ?? 0,
           replies: p.replies ?? 0,

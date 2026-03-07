@@ -5,7 +5,7 @@
  * モデルアカウントの概要をカード形式で表示
  */
 import Link from "next/link";
-import { Users, ExternalLink } from "lucide-react";
+import { Users, ExternalLink, FileText, Sparkles } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -17,6 +17,7 @@ import type { ModelAccount } from "@/types/database";
 
 interface ModelCardProps {
   model: ModelAccount;
+  postCount?: number;
 }
 
 /** プラットフォーム表示名のマッピング */
@@ -41,7 +42,7 @@ function formatFollowerCount(count: number | null | undefined): string {
   return count.toLocaleString();
 }
 
-export function ModelCard({ model }: ModelCardProps) {
+export function ModelCard({ model, postCount }: ModelCardProps) {
   // ユーザー名の先頭2文字をアバターフォールバックに使用
   const initials = (model.display_name ?? model.username)
     .slice(0, 2)
@@ -83,9 +84,19 @@ export function ModelCard({ model }: ModelCardProps) {
             <Badge variant={platformVariants[model.platform] ?? "outline"}>
               {platformLabels[model.platform] ?? model.platform}
             </Badge>
-            <div className="flex items-center gap-1 text-sm text-muted-foreground">
-              <Users className="h-3.5 w-3.5" />
-              <span>{formatFollowerCount(null)}</span>
+            <div className="flex items-center gap-3 text-sm text-muted-foreground">
+              {postCount !== undefined && postCount > 0 && (
+                <div className="flex items-center gap-1">
+                  <FileText className="h-3.5 w-3.5" />
+                  <span>{postCount}件</span>
+                </div>
+              )}
+              {model.analysis_result && (
+                <div className="flex items-center gap-1 text-primary">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span className="text-xs">分析済み</span>
+                </div>
+              )}
             </div>
           </div>
 

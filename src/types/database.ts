@@ -40,6 +40,7 @@ export interface Profile {
   display_name: string | null;
   avatar_url: string | null;
   email_notifications: boolean;
+  custom_writing_instructions: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -55,6 +56,9 @@ export interface SocialAccount {
   refresh_token_enc: string | null;
   token_expires_at: string | null;
   is_active: boolean;
+  last_synced_at: string | null;
+  sync_status: string | null;
+  writing_profile: WritingProfile | null;
   created_at: string;
   updated_at: string;
 }
@@ -91,6 +95,10 @@ export interface PostInsight {
   id: string;
   account_id: string;
   platform_post_id: string;
+  post_text: string | null;
+  post_url: string | null;
+  media_type: string | null;
+  media_url: string | null;
   likes: number;
   replies: number;
   reposts: number;
@@ -201,7 +209,43 @@ export interface AnalysisResult {
     peak_days: string[];
     peak_hours: number[];
   };
+  engagement_patterns: {
+    avg_likes: number;
+    avg_replies: number;
+    avg_reposts: number;
+    top_post_features: string[];
+    best_performing_format: string;
+    common_traits?: string[];
+    optimal_length?: number;
+  };
   summary: string;
+  modeling_tips: string[];
+}
+
+/** 自分のライティングプロファイル（social_accounts.writing_profile） */
+export interface WritingProfile {
+  writing_style: {
+    tone: string;
+    avg_length: number;
+    emoji_usage: string;
+    hook_patterns: string[];
+  };
+  content_themes: Array<{
+    theme: string;
+    frequency: number;
+  }>;
+  hashtag_strategy: {
+    avg_count: number;
+    top_hashtags: string[];
+    usage_pattern: string;
+  };
+  posting_frequency: {
+    avg_per_week: number;
+    peak_days: string[];
+    peak_hours: number[];
+  };
+  summary: string;
+  analyzed_at: string;
 }
 
 // ============================================================
@@ -226,6 +270,9 @@ export type SocialAccountUpdate = Partial<
     | "refresh_token_enc"
     | "token_expires_at"
     | "is_active"
+    | "last_synced_at"
+    | "sync_status"
+    | "writing_profile"
   >
 >;
 

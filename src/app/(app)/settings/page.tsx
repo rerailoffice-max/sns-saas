@@ -1,10 +1,11 @@
 /**
  * プロフィール設定ページ（Server Component）
- * 表示名・メール通知設定の管理
+ * 表示名・メール通知設定・ライティングスタイル設定の管理
  */
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { ProfileSettingsClient } from "@/components/settings/profile-settings-client";
+import { WritingStyleSettings } from "@/components/settings/writing-style-settings";
 
 export default async function SettingsPage() {
   // デモモード: Supabase未設定時はモックデータで表示
@@ -19,6 +20,11 @@ export default async function SettingsPage() {
             avatar_url: null,
             email_notifications: true,
           }}
+        />
+        <WritingStyleSettings
+          initialInstructions=""
+          hasWritingProfile={false}
+          accountId={null}
         />
       </div>
     );
@@ -39,6 +45,17 @@ export default async function SettingsPage() {
     .eq("id", user.id)
     .single();
 
+  // 接続済みのSNSアカウント情報を取得（ライティング分析用）
+  const { data: socialAccounts } = await supabase
+    .from("social_accounts")
+    .select("id, writing_profile")
+    .eq("profile_id", user.id)
+    .eq("is_active", true)
+    .limit(1);
+
+  const accountId = socialAccounts?.[0]?.id ?? null;
+  const hasWritingProfile = !!socialAccounts?.[0]?.writing_profile;
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">プロフィール設定</h1>
@@ -49,6 +66,11 @@ export default async function SettingsPage() {
           avatar_url: profile?.avatar_url ?? null,
           email_notifications: profile?.email_notifications ?? true,
         }}
+      />
+      <WritingStyleSettings
+        initialInstructions={profile?.custom_writing_instructions ?? ""}
+        hasWritingProfile={hasWritingProfile}
+        accountId={accountId}
       />
     </div>
   );

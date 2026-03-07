@@ -12,6 +12,10 @@ import {
   FileText,
   Sparkles,
   TrendingUp,
+  Download,
+  Loader2,
+  ArrowRight,
+  Zap,
 } from "lucide-react";
 import {
   Card,
@@ -87,7 +91,28 @@ export function AnalysisReport({
 }: AnalysisReportProps) {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-  /** AI分析を実行（将来のOpenAI/Gemini連携用のスタブ） */
+  const [isFetching, setIsFetching] = useState(false);
+
+  /** 投稿データを取得 */
+  const handleFetchPosts = async () => {
+    setIsFetching(true);
+    try {
+      const res = await fetch(`/api/models/${modelId}/fetch-posts`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const json = await res.json();
+        console.error("投稿取得エラー:", json.error);
+      }
+      window.location.reload();
+    } catch (err) {
+      console.error("投稿取得リクエストエラー:", err);
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
+  /** AI分析を実行 */
   const handleAnalyze = async () => {
     setIsAnalyzing(true);
     try {
@@ -174,7 +199,7 @@ export function AnalysisReport({
 
       {/* タブ: グラフ / 投稿一覧 / AI分析 */}
       <Tabs defaultValue="chart">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-2">
           <TabsList>
             <TabsTrigger value="chart">
               <TrendingUp className="h-4 w-4 mr-1" />
@@ -189,6 +214,19 @@ export function AnalysisReport({
               AI分析
             </TabsTrigger>
           </TabsList>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleFetchPosts}
+            disabled={isFetching}
+          >
+            {isFetching ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="mr-2 h-4 w-4" />
+            )}
+            {isFetching ? "取得中..." : "投稿を再取得"}
+          </Button>
         </div>
 
         {/* カテゴリ別エンゲージメント棒グラフ */}
@@ -470,6 +508,67 @@ export function AnalysisReport({
                       </div>
                     </div>
                   </div>
+
+                  {/* エンゲージメントパターン */}
+                  {analysisResult.engagement_patterns && (
+                    <div>
+                      <h4 className="font-semibold mb-2">⚡ バズる投稿の特徴</h4>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {analysisResult.engagement_patterns.common_traits && (
+                          <div className="rounded-lg border p-3 sm:col-span-2">
+                            <p className="text-xs text-muted-foreground mb-1">共通パターン</p>
+                            <div className="flex flex-wrap gap-1">
+                              {analysisResult.engagement_patterns.common_traits.map(
+                                (trait, i) => (
+                                  <Badge key={i} variant="secondary" className="text-xs">
+                                    <Zap className="h-3 w-3 mr-1" />
+                                    {trait}
+                                  </Badge>
+                                )
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        {analysisResult.engagement_patterns.best_performing_format && (
+                          <div className="rounded-lg border p-3">
+                            <p className="text-xs text-muted-foreground">最もパフォーマンスが良いフォーマット</p>
+                            <p className="text-sm font-medium mt-1">
+                              {analysisResult.engagement_patterns.best_performing_format}
+                            </p>
+                          </div>
+                        )}
+                        {analysisResult.engagement_patterns.optimal_length && (
+                          <div className="rounded-lg border p-3">
+                            <p className="text-xs text-muted-foreground">最適な文字数</p>
+                            <p className="text-sm font-medium mt-1">
+                              {analysisResult.engagement_patterns.optimal_length}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* モデリングのコツ */}
+                  {analysisResult.modeling_tips &&
+                    analysisResult.modeling_tips.length > 0 && (
+                      <div>
+                        <h4 className="font-semibold mb-2">
+                          💡 モデリングのコツ
+                        </h4>
+                        <div className="space-y-2">
+                          {analysisResult.modeling_tips.map((tip, i) => (
+                            <div
+                              key={i}
+                              className="flex items-start gap-2 rounded-lg border p-3"
+                            >
+                              <ArrowRight className="h-4 w-4 mt-0.5 text-primary shrink-0" />
+                              <p className="text-sm">{tip}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                   {/* 最終分析日時 */}
                   {lastAnalyzedAt && (

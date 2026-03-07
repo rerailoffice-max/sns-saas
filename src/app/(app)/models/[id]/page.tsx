@@ -17,7 +17,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { AnalysisReport } from "@/components/models/analysis-report";
-import type { ModelAccount, ModelPost } from "@/types/database";
+import { StyleComparison } from "@/components/models/style-comparison";
+import type { ModelAccount, ModelPost, WritingProfile, AnalysisResult } from "@/types/database";
 
 /** プラットフォーム表示名 */
 const platformLabels: Record<string, string> = {
@@ -167,6 +168,18 @@ export default async function ModelDetailPage({
   const typedPosts = (posts as ModelPost[]) ?? [];
   const stats = calcStats(typedPosts);
 
+  // ユーザーのライティングプロファイル取得（比較分析用）
+  const { data: socialAccounts } = await supabase
+    .from("social_accounts")
+    .select("id, writing_profile")
+    .eq("profile_id", user.id)
+    .eq("platform", typedModel.platform)
+    .eq("is_active", true)
+    .limit(1);
+
+  const selfProfile = (socialAccounts?.[0]?.writing_profile as WritingProfile | null) ?? null;
+  const selfAccountId = socialAccounts?.[0]?.id ?? null;
+
   // ユーザー名の先頭2文字をアバターフォールバック
   const initials = (typedModel.display_name ?? typedModel.username)
     .slice(0, 2)
@@ -231,9 +244,19 @@ export default async function ModelDetailPage({
         modelId={id}
         stats={stats}
         posts={typedPosts}
-        analysisResult={typedModel.analysis_result}
+        analysisResult={typedModel.analysis_result as AnalysisResult | null}
         lastAnalyzedAt={typedModel.last_analyzed_at}
       />
+
+      {/* スタイル比較（分析結果がある場合のみ表示） */}
+      {typedModel.analysis_result && (
+        <StyleComparison
+          modelAnalysis={typedModel.analysis_result as AnalysisResult}
+          selfProfile={selfProfile}
+          modelUsername={typedModel.username}
+          accountId={selfAccountId}
+        />
+      )}
     </div>
   );
 }

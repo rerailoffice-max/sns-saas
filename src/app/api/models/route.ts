@@ -1,13 +1,17 @@
 /**
  * モデルアカウント管理API
  * GET /api/models - 一覧取得
- * POST /api/models - 新規登録
+ * POST /api/models - 新規登録（プロフィール+投稿の自動取得付き）
  */
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { NextRequest, NextResponse } from "next/server";
 import { createModelAccountSchema } from "@/lib/validations/model-account";
 import { getPlanLimits } from "@/lib/stripe/plans";
+import { ThreadsAdapter } from "@/lib/adapters/threads";
+import { decrypt } from "@/lib/encryption";
 import type { SubscriptionPlan } from "@/types/database";
+import type { ThreadListItem } from "@/types/sns";
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -104,5 +108,88 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "登録に失敗しました" }, { status: 500 });
   }
 
+  // 登録成功後: バックグラウンドでプロフィール・投稿を自動取得
+  if (model) {
+    fetchModelDataBackground(user.id, model.id, parsed.data.platform, parsed.data.username);
+  }
+
   return NextResponse.json({ data: model }, { status: 201 });
+}
+
+/**
+ * バックグラウンドでモデルアカウントのプロフィール・投稿を取得
+ * fire-and-forget で実行（レスポンスをブロックしない）
+ */
+async function fetchModelDataBackground(
+  profileId: string,
+  modelId: string,
+  platform: string,
+  username: string
+) {
+  try {
+    const admin = createAdminClient();
+
+    // ユーザーの接続済みアカウントからアクセストークンを取得
+    const { data: socialAccount } = await admin
+      .from("social_accounts")
+      .select("access_token_enc")
+      .eq("profile_id", profileId)
+      .eq("platform", platform)
+      .eq("is_active", true)
+      .single();
+
+    if (!socialAccount?.access_token_enc) return;
+
+    const accessToken = decrypt(socialAccount.access_token_enc);
+    const adapter = new ThreadsAdapter();
+
+    // プロフィール取得 → display_name, avatar_url を更新
+    try {
+      const profile = await adapter.getPublicProfile(username);
+      await admin
+        .from("model_accounts")
+        .update({
+          display_name: profile.display_name,
+          avatar_url: profile.avatar_url,
+          platform_user_id: profile.platform_user_id,
+        })
+        .eq("id", modelId);
+    } catch {
+      // プロフィール取得失敗は無視
+    }
+
+    // 公開投稿を取得（最大25件）
+    try {
+      const threadsResult = await adapter.getPublicThreads(username, {
+        limit: 25,
+      });
+      const posts = threadsResult.data ?? [];
+
+      if (posts.length > 0) {
+        const postsToInsert = posts.map((post: ThreadListItem) => ({
+          model_account_id: modelId,
+          platform_post_id: post.id,
+          text: post.text ?? null,
+          hashtags: extractHashtags(post.text ?? ""),
+          media_type: (post.media_type ?? "text").toLowerCase(),
+          posted_at: post.timestamp ?? null,
+        }));
+
+        await admin.from("model_posts").upsert(postsToInsert, {
+          onConflict: "model_account_id,platform_post_id",
+          ignoreDuplicates: true,
+        });
+      }
+    } catch {
+      // 投稿取得失敗は無視
+    }
+  } catch (err) {
+    console.error("モデルデータ自動取得エラー:", err);
+  }
+}
+
+/** テキストからハッシュタグを抽出 */
+function extractHashtags(text: string): string[] {
+  const matches = text.match(/#[\w\u3000-\u9FFF]+/g);
+  return matches ? matches.map((tag) => tag.replace("#", "")) : [];
 }

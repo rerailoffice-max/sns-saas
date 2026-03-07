@@ -17,6 +17,7 @@ import {
   CreditCard,
   Key,
   Bell,
+  Flame,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +27,7 @@ const navItems = [
   { label: "下書き", href: "/drafts", icon: FileText },
   { label: "予約管理", href: "/schedule", icon: Calendar },
   { label: "分析", href: "/analytics", icon: BarChart3 },
+  { label: "🔥 バズツール", href: "/buzz", icon: Flame },
   { label: "モデリング", href: "/models", icon: Users },
 ];
 

@@ -1,6 +1,6 @@
 /**
  * SNSアカウント管理ページ
- * 接続済みアカウントの表示・新規接続
+ * 接続済みアカウントの表示・新規接続・データ同期
  * デモモード対応
  */
 import { createClient } from "@/lib/supabase/server";
@@ -8,8 +8,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Plus, ExternalLink, CheckCircle2, XCircle } from "lucide-react";
+import { Plus, ExternalLink, CheckCircle2, XCircle, RefreshCw } from "lucide-react";
 import { redirect } from "next/navigation";
+import { SyncButton } from "@/components/settings/sync-button";
 
 /** アカウント一覧表示コンポーネント（デモ・実データ兼用） */
 function AccountsView({
@@ -29,7 +30,7 @@ function AccountsView({
       {successMsg === "threads_connected" && (
         <Alert>
           <CheckCircle2 className="h-4 w-4" />
-          <AlertDescription>Threadsアカウントを接続しました</AlertDescription>
+          <AlertDescription>Threadsアカウントを接続しました。データを同期中です...</AlertDescription>
         </Alert>
       )}
 
@@ -79,9 +80,19 @@ function AccountsView({
                       {account.display_name && (
                         <p className="text-sm text-muted-foreground">{account.display_name}</p>
                       )}
+                      {/* 同期ステータス表示 */}
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {account.sync_status === "syncing" && "🔄 同期中..."}
+                        {account.sync_status === "completed" && account.last_synced_at && (
+                          <>✅ 最終同期: {new Date(account.last_synced_at).toLocaleString("ja-JP")}</>
+                        )}
+                        {account.sync_status === "error" && "❌ 同期エラー"}
+                        {(!account.sync_status || account.sync_status === "pending") && "⏳ 未同期"}
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    <SyncButton accountId={account.id} />
                     <Badge variant="default" className="text-xs">
                       接続済み
                     </Badge>
@@ -140,7 +151,7 @@ export default async function AccountsSettingsPage({
     redirect("/login");
   }
 
-  // 接続済みアカウント取得
+  // 接続済みアカウント取得（同期ステータス含む）
   const { data: accounts } = await supabase
     .from("social_accounts")
     .select("*")

@@ -14,8 +14,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { CharCounter } from "./char-counter";
 import { PostPreview } from "./post-preview";
+import { AiAssistButton } from "./ai-assist-button";
+import { HashtagSuggest } from "./hashtag-suggest";
 import { Save, Send, Loader2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import type { HashtagStats } from "@/lib/hashtag-recommend";
 
 interface Account {
   id: string;
@@ -24,13 +27,21 @@ interface Account {
   display_name: string | null;
 }
 
+interface ModelAccount {
+  id: string;
+  username: string;
+  display_name: string | null;
+}
+
 interface PostEditorProps {
   accounts: Account[];
+  hashtagSuggestions?: HashtagStats[];
+  modelAccounts?: ModelAccount[];
 }
 
 const MAX_CHARS = 500; // Threads文字数制限
 
-export function PostEditor({ accounts }: PostEditorProps) {
+export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = [] }: PostEditorProps) {
   const router = useRouter();
   const [text, setText] = useState("");
   const [selectedAccountId, setSelectedAccountId] = useState(accounts[0]?.id ?? "");
@@ -178,6 +189,25 @@ export function PostEditor({ accounts }: PostEditorProps) {
                 <CharCounter current={charCount} max={MAX_CHARS} />
               </div>
             </div>
+
+            {/* AIアシスト & ハッシュタグ提案 */}
+            <div className="flex items-center gap-2">
+              <AiAssistButton
+                accountId={selectedAccountId}
+                onInsert={(generatedText) => setText(generatedText)}
+                modelAccounts={modelAccounts}
+              />
+            </div>
+
+            {/* ハッシュタグ提案 */}
+            {hashtagSuggestions.length > 0 && (
+              <HashtagSuggest
+                suggestions={hashtagSuggestions.filter(
+                  (s) => !text.toLowerCase().includes(s.tag.toLowerCase())
+                ).slice(0, 5)}
+                onInsert={(tag) => setText((prev) => prev + " " + tag)}
+              />
+            )}
 
             {/* エラー表示 */}
             {error && (

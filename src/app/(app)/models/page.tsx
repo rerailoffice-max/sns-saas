@@ -41,6 +41,21 @@ export default async function ModelsPage() {
     .eq("profile_id", user.id)
     .order("created_at", { ascending: false });
 
+  // 各モデルの投稿数を取得
+  const modelIds = (models ?? []).map((m) => m.id);
+  let postCounts: Record<string, number> = {};
+  if (modelIds.length > 0) {
+    const { data: counts } = await supabase
+      .from("model_posts")
+      .select("model_account_id")
+      .in("model_account_id", modelIds);
+    if (counts) {
+      for (const row of counts) {
+        postCounts[row.model_account_id] = (postCounts[row.model_account_id] ?? 0) + 1;
+      }
+    }
+  }
+
   // サブスクリプション情報を取得
   const { data: subscription } = await supabase
     .from("subscriptions")
@@ -69,6 +84,7 @@ export default async function ModelsPage() {
         models={(models as ModelAccount[]) ?? []}
         plan={plan}
         maxModelAccounts={limits.maxModelAccounts}
+        postCounts={postCounts}
       />
     </div>
   );
