@@ -8,9 +8,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Plus, ExternalLink, CheckCircle2, XCircle, RefreshCw } from "lucide-react";
+import { Plus, ExternalLink, CheckCircle2, XCircle, RefreshCw, Clock } from "lucide-react";
 import { redirect } from "next/navigation";
 import { SyncButton } from "@/components/settings/sync-button";
+import { PlatformIcon } from "@/components/icons/platform-icon";
 
 /** アカウント一覧表示コンポーネント（デモ・実データ兼用） */
 function AccountsView({
@@ -63,10 +64,8 @@ function AccountsView({
                   className="flex items-center justify-between rounded-lg border p-4"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-lg">
-                      {account.platform === "threads" && "🧵"}
-                      {account.platform === "instagram" && "📷"}
-                      {account.platform === "x" && "𝕏"}
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                      <PlatformIcon platform={account.platform} size={20} />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
@@ -81,13 +80,19 @@ function AccountsView({
                         <p className="text-sm text-muted-foreground">{account.display_name}</p>
                       )}
                       {/* 同期ステータス表示 */}
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {account.sync_status === "syncing" && "🔄 同期中..."}
-                        {account.sync_status === "completed" && account.last_synced_at && (
-                          <>✅ 最終同期: {new Date(account.last_synced_at).toLocaleString("ja-JP")}</>
+                      <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                        {account.sync_status === "syncing" && (
+                          <><RefreshCw className="h-3 w-3 animate-spin" /> 同期中...</>
                         )}
-                        {account.sync_status === "error" && "❌ 同期エラー"}
-                        {(!account.sync_status || account.sync_status === "pending") && "⏳ 未同期"}
+                        {account.sync_status === "completed" && account.last_synced_at && (
+                          <><CheckCircle2 className="h-3 w-3 text-green-500" /> 最終同期: {new Date(account.last_synced_at).toLocaleString("ja-JP")}</>
+                        )}
+                        {account.sync_status === "error" && (
+                          <><XCircle className="h-3 w-3 text-destructive" /> 同期エラー</>
+                        )}
+                        {(!account.sync_status || account.sync_status === "pending") && (
+                          <><Clock className="h-3 w-3" /> 未同期</>
+                        )}
                       </p>
                     </div>
                   </div>

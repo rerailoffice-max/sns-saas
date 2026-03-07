@@ -64,7 +64,7 @@ export default async function ModelsPage() {
     .single();
 
   const plan = (subscription?.plan ?? "free") as SubscriptionPlan;
-  const limits = getPlanLimits(plan);
+  const limits = getPlanLimits(plan, user.id);
 
   // エラー時のフォールバック
   if (modelsError) {

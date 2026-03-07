@@ -1,9 +1,13 @@
+"use client";
+
 /**
  * 設定ページ共通レイアウト
- * サイドナビゲーション付きのレイアウト
+ * 上部タブナビゲーション付きのレイアウト
  */
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { User, Link2, CreditCard, Key, Bell } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 /** 設定メニューアイテム */
 const SETTINGS_NAV = [
@@ -19,27 +23,36 @@ export default function SettingsLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const pathname = usePathname();
+
   return (
-    <div className="flex flex-col gap-6 lg:flex-row">
-      {/* サイドナビゲーション */}
-      <nav className="lg:w-56 shrink-0">
-        <ul className="flex lg:flex-col gap-1 overflow-x-auto">
-          {SETTINGS_NAV.map((item) => (
-            <li key={item.href}>
+    <div className="space-y-6">
+      {/* 上部タブナビゲーション */}
+      <div className="border-b">
+        <nav className="flex overflow-x-auto -mb-px">
+          {SETTINGS_NAV.map((item) => {
+            const isActive = pathname === item.href;
+            return (
               <Link
+                key={item.href}
                 href={item.href}
-                className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground whitespace-nowrap"
+                className={cn(
+                  "flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition-colors",
+                  isActive
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/50"
+                )}
               >
                 <item.icon className="h-4 w-4" />
                 {item.label}
               </Link>
-            </li>
-          ))}
-        </ul>
-      </nav>
+            );
+          })}
+        </nav>
+      </div>
 
       {/* メインコンテンツ */}
-      <div className="flex-1 min-w-0">{children}</div>
+      <div>{children}</div>
     </div>
   );
 }

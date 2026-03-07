@@ -108,9 +108,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "登録に失敗しました" }, { status: 500 });
   }
 
-  // 登録成功後: バックグラウンドでプロフィール・投稿を自動取得
+  // 登録成功後: バックグラウンドでプロフィール・投稿を自動取得→AI分析
   if (model) {
-    fetchModelDataBackground(user.id, model.id, parsed.data.platform, parsed.data.username);
+    const cookies = request.headers.get("cookie") ?? "";
+    fetchModelDataBackground(user.id, model.id, parsed.data.platform, parsed.data.username, cookies);
   }
 
   return NextResponse.json({ data: model }, { status: 201 });
@@ -124,7 +125,8 @@ async function fetchModelDataBackground(
   profileId: string,
   modelId: string,
   platform: string,
-  username: string
+  username: string,
+  cookies: string
 ) {
   try {
     const admin = createAdminClient();
@@ -182,6 +184,19 @@ async function fetchModelDataBackground(
       }
     } catch {
       // 投稿取得失敗は無視
+    }
+
+    // 投稿取得後: 自動AI分析を実行（失敗はサイレント）
+    try {
+      const baseUrl =
+        process.env.NEXT_PUBLIC_APP_URL ||
+        (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+      await fetch(`${baseUrl}/api/models/${modelId}/analyze`, {
+        method: "POST",
+        headers: { cookie: cookies },
+      });
+    } catch {
+      // 自動分析失敗はサイレント — ユーザーが手動で実行可能
     }
   } catch (err) {
     console.error("モデルデータ自動取得エラー:", err);

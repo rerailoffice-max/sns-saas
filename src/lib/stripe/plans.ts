@@ -4,6 +4,7 @@
  */
 
 import type { SubscriptionPlan } from "@/types/database";
+import { isAdmin } from "@/lib/admin";
 
 export interface PlanLimits {
   maxAccounts: number;
@@ -63,8 +64,12 @@ export const PLAN_LIMITS: Record<SubscriptionPlan, PlanLimits> = {
 
 /**
  * プラン制限を取得
+ * 管理者の場合はprofessionalプラン相当の制限を返す
  */
-export function getPlanLimits(plan: SubscriptionPlan): PlanLimits {
+export function getPlanLimits(plan: SubscriptionPlan, userId?: string): PlanLimits {
+  if (userId && isAdmin(userId)) {
+    return PLAN_LIMITS.professional;
+  }
   return PLAN_LIMITS[plan];
 }
 

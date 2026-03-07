@@ -4,7 +4,7 @@
  * モデルアカウント一覧 - クライアントコンポーネント
  * モデルカードのグリッド表示と新規追加ダイアログを管理
  */
-import { useState } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, AlertCircle, Sparkles, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -52,6 +52,14 @@ export function ModelListClient({
   const [isBulkAnalyzing, setIsBulkAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<"all" | "analyzed" | "unanalyzed">("all");
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ポーリング停止のクリーンアップ
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, []);
 
   // プラン制限に達しているか
   const isLimitReached = models.length >= maxModelAccounts;
@@ -112,6 +120,19 @@ export function ModelListClient({
       setUsername("");
       setPlatform("threads");
       router.refresh();
+
+      // バックグラウンドで投稿取得＋AI分析が進行中 → ポーリングで更新検知
+      if (pollingRef.current) clearInterval(pollingRef.current);
+      const startTime = Date.now();
+      pollingRef.current = setInterval(() => {
+        // 60秒でポーリング停止
+        if (Date.now() - startTime > 60_000) {
+          if (pollingRef.current) clearInterval(pollingRef.current);
+          pollingRef.current = null;
+          return;
+        }
+        router.refresh();
+      }, 3_000);
     } catch {
       setError("ネットワークエラーが発生しました");
     } finally {

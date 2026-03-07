@@ -14,9 +14,6 @@ import {
   BarChart3,
   Users,
   Settings,
-  CreditCard,
-  Key,
-  Bell,
   Flame,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -27,16 +24,9 @@ const navItems = [
   { label: "下書き", href: "/drafts", icon: FileText },
   { label: "予約管理", href: "/schedule", icon: Calendar },
   { label: "分析", href: "/analytics", icon: BarChart3 },
-  { label: "🔥 バズツール", href: "/buzz", icon: Flame },
+  { label: "バズツール", href: "/buzz", icon: Flame },
   { label: "モデリング", href: "/models", icon: Users },
-];
-
-const settingsItems = [
-  { label: "プロフィール", href: "/settings", icon: Settings },
-  { label: "SNSアカウント", href: "/settings/accounts", icon: Users },
-  { label: "課金管理", href: "/settings/billing", icon: CreditCard },
-  { label: "APIキー", href: "/settings/api-keys", icon: Key },
-  { label: "通知", href: "/settings/notifications", icon: Bell },
+  { label: "設定", href: "/settings", icon: Settings },
 ];
 
 export function AppSidebar() {
@@ -58,7 +48,10 @@ export function AppSidebar() {
       <nav className="flex-1 overflow-y-auto p-4">
         <div className="space-y-1">
           {navItems.map((item) => {
-            const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+            const isActive =
+              pathname === item.href ||
+              pathname.startsWith(item.href + "/") ||
+              (item.href === "/settings" && pathname.startsWith("/settings"));
             return (
               <Link
                 key={item.href}
@@ -75,33 +68,6 @@ export function AppSidebar() {
               </Link>
             );
           })}
-        </div>
-
-        {/* 設定セクション */}
-        <div className="mt-8">
-          <p className="mb-2 px-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            設定
-          </p>
-          <div className="space-y-1">
-            {settingsItems.map((item) => {
-              const isActive = pathname === item.href;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
-                    isActive
-                      ? "bg-primary/10 text-primary font-medium"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  )}
-                >
-                  <item.icon className="h-4 w-4" />
-                  {item.label}
-                </Link>
-              );
-            })}
-          </div>
         </div>
       </nav>
 

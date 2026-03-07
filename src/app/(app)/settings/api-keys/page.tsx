@@ -5,6 +5,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { ApiKeysClient } from "@/components/settings/api-keys-client";
+import { isAdmin } from "@/lib/admin";
 import type { SubscriptionPlan } from "@/types/database";
 
 export default async function ApiKeysSettingsPage() {
@@ -48,7 +49,7 @@ export default async function ApiKeysSettingsPage() {
 
       <ApiKeysClient
         initialKeys={keys ?? []}
-        currentPlan={(subscription?.plan as SubscriptionPlan) ?? "free"}
+        currentPlan={isAdmin(user.id) ? "professional" : ((subscription?.plan as SubscriptionPlan) ?? "free")}
       />
     </div>
   );

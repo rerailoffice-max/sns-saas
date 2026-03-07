@@ -12,7 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Flame, Target, Zap, Clock, TrendingUp } from "lucide-react";
+import { Flame, Target, Zap, Clock, TrendingUp, Heart, MessageCircle, Repeat2, Eye } from "lucide-react";
 import { calculateBuzzScore, getBuzzRank } from "@/lib/buzz-score";
 import { getOptimalTimings } from "@/lib/optimal-timing";
 import { analyzeBuzzPatterns } from "@/lib/buzz-patterns";
@@ -276,11 +276,11 @@ export default async function BuzzPage() {
                         {post.post_text ?? post.platform_post_id ?? ""}
                       </p>
                       <div className="flex gap-3 mt-1 text-xs text-muted-foreground">
-                        <span>❤️ {post.likes ?? 0}</span>
-                        <span>💬 {post.replies ?? 0}</span>
-                        <span>🔁 {post.reposts ?? 0}</span>
+                        <span className="flex items-center gap-1"><Heart className="h-3 w-3" /> {post.likes ?? 0}</span>
+                        <span className="flex items-center gap-1"><MessageCircle className="h-3 w-3" /> {post.replies ?? 0}</span>
+                        <span className="flex items-center gap-1"><Repeat2 className="h-3 w-3" /> {post.reposts ?? 0}</span>
                         {post.impressions ? (
-                          <span>👁 {post.impressions.toLocaleString()}</span>
+                          <span className="flex items-center gap-1"><Eye className="h-3 w-3" /> {post.impressions.toLocaleString()}</span>
                         ) : null}
                       </div>
                     </div>

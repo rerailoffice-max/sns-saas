@@ -5,7 +5,7 @@
  * モデルアカウントの概要をカード形式で表示
  */
 import Link from "next/link";
-import { Users, ExternalLink, FileText, Sparkles } from "lucide-react";
+import { Users, ExternalLink, FileText, Sparkles, Loader2 } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -47,6 +47,12 @@ export function ModelCard({ model, postCount }: ModelCardProps) {
   const initials = (model.display_name ?? model.username)
     .slice(0, 2)
     .toUpperCase();
+
+  // 登録から5分以内で未分析の場合は「分析中」表示
+  const isRecentlyCreated =
+    !model.analysis_result &&
+    model.created_at &&
+    Date.now() - new Date(model.created_at).getTime() < 5 * 60 * 1000;
 
   return (
     <Link href={`/models/${model.id}`}>
@@ -91,12 +97,17 @@ export function ModelCard({ model, postCount }: ModelCardProps) {
                   <span>{postCount}件</span>
                 </div>
               )}
-              {model.analysis_result && (
+              {model.analysis_result ? (
                 <div className="flex items-center gap-1 text-primary">
                   <Sparkles className="h-3.5 w-3.5" />
                   <span className="text-xs">分析済み</span>
                 </div>
-              )}
+              ) : isRecentlyCreated ? (
+                <div className="flex items-center gap-1 text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span className="text-xs">投稿取得・AI分析中...</span>
+                </div>
+              ) : null}
             </div>
           </div>
 

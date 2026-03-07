@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/card";
 import { TrendingUp, Users, FileText, Calendar, Target } from "lucide-react";
 import { getOptimalTimings, type TimingRecommendation } from "@/lib/optimal-timing";
+import { PlatformIcon } from "@/components/icons/platform-icon";
 import { FollowersChart } from "@/components/dashboard/followers-chart";
 import { EngagementChart } from "@/components/dashboard/engagement-chart";
 import { RecentPosts } from "@/components/dashboard/recent-posts";
@@ -73,6 +74,7 @@ export default async function DashboardPage({
         periodDays={30}
         accountCount={1}
         hasAccounts={true}
+        accounts={[{ id: "demo", platform: "threads", username: "demo_user", display_name: "デモユーザー" }]}
         optimalTimings={[
           { dayIndex: 2, dayName: "水", hour: 8, avgEngagement: 45, postCount: 3 },
           { dayIndex: 0, dayName: "月", hour: 12, avgEngagement: 38, postCount: 4 },
@@ -276,6 +278,7 @@ export default async function DashboardPage({
       periodDays={periodDays}
       accountCount={accountIds.length}
       hasAccounts={hasAccounts}
+      accounts={accounts ?? []}
       optimalTimings={optimalTimings}
     />
   );
@@ -293,6 +296,7 @@ function DashboardView({
   periodDays,
   accountCount,
   hasAccounts,
+  accounts = [],
   optimalTimings = [],
 }: {
   followerData: Array<{ date: string; count: number }>;
@@ -318,6 +322,7 @@ function DashboardView({
   periodDays: number;
   accountCount: number;
   hasAccounts: boolean;
+  accounts?: Array<{ id: string; platform: string; username: string; display_name: string | null }>;
   optimalTimings?: TimingRecommendation[];
 }) {
   return (
@@ -340,11 +345,22 @@ function DashboardView({
             <div className="text-2xl font-bold">
               {hasAccounts ? latestFollowers.toLocaleString() : "-"}
             </div>
-            <p className="text-xs text-muted-foreground">
-              {hasAccounts
-                ? `${accountCount}アカウント合計`
-                : "SNSアカウントを接続してください"}
-            </p>
+            <div className="text-xs text-muted-foreground">
+              {hasAccounts && accounts.length > 0 ? (
+                <div className="flex items-center gap-2 flex-wrap">
+                  {accounts.map((acc) => (
+                    <span key={acc.id} className="flex items-center gap-1">
+                      <PlatformIcon platform={acc.platform} size={12} />
+                      @{acc.username}
+                    </span>
+                  ))}
+                </div>
+              ) : hasAccounts ? (
+                `${accountCount}アカウント合計`
+              ) : (
+                "SNSアカウントを接続してください"
+              )}
+            </div>
           </CardContent>
         </Card>
         <Card>
