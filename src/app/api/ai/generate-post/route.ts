@@ -20,7 +20,7 @@ const requestSchema = z.object({
   model_account_id: z.string().uuid().optional(),
   style: z.enum(["default", "model", "custom"]).optional().default("default"),
   custom_instructions: z.string().max(500).optional(),
-  source_url: z.string().url().optional(),
+  source_url: z.string().optional(),
   thread_mode: z.boolean().optional().default(false),
   hook_pattern: z.enum(["A", "B", "C", "D", "E", "F"]).optional(),
   thread_count: z.number().min(3).max(5).optional(),
@@ -58,11 +58,15 @@ export async function POST(request: NextRequest) {
     style,
     model_account_id,
     custom_instructions,
-    source_url,
     thread_mode,
     hook_pattern,
     thread_count,
   } = parsed.data;
+
+  let source_url = parsed.data.source_url;
+  if (source_url && !/^https?:\/\//i.test(source_url)) {
+    source_url = `https://${source_url}`;
+  }
 
   try {
     // ユーザーのカスタムライティング指示を取得

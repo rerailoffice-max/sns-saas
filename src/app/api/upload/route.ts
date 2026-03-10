@@ -62,17 +62,36 @@ export async function POST(request: NextRequest) {
   const ext = file.name.split(".").pop() ?? (isVideo ? "mp4" : "jpg");
   const fileName = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
-  const { error: uploadError } = await supabase.storage
+  let uploadResult = await supabase.storage
     .from("post-media")
     .upload(fileName, file, {
       contentType: file.type,
       upsert: false,
     });
 
-  if (uploadError) {
-    console.error("アップロードエラー:", uploadError);
+  if (uploadResult.error?.message?.includes("not found") || uploadResult.error?.message?.includes("Bucket")) {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const admin = createAdminClient();
+    await admin.storage.createBucket("post-media", {
+      public: true,
+      fileSizeLimit: 26214400,
+      allowedMimeTypes: [
+        "image/jpeg", "image/png", "image/gif", "image/webp",
+        "video/mp4", "video/quicktime",
+      ],
+    });
+    uploadResult = await supabase.storage
+      .from("post-media")
+      .upload(fileName, file, {
+        contentType: file.type,
+        upsert: false,
+      });
+  }
+
+  if (uploadResult.error) {
+    console.error("アップロードエラー:", uploadResult.error);
     return NextResponse.json(
-      { error: "アップロードに失敗しました" },
+      { error: `アップロードに失敗しました: ${uploadResult.error.message}` },
       { status: 500 }
     );
   }
