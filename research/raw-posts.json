@@ -1,0 +1,164 @@
+{
+  "collected_at": "2026-03-08T03:32:27.332014",
+  "accounts": {
+    "kudooo_ai": {
+      "url": "https://www.threads.net/@kudooo_ai",
+      "profile": "くどう| AI×Threads売れるマーケ設計士",
+      "follower_count": 5140,
+      "posts": [
+        {
+          "post_number": 1,
+          "content": "【2026年最新版】Threads3大特典を無料配布！",
+          "threads_count": 3,
+          "has_link": true,
+          "link_position": "multiple",
+          "has_image": false,
+          "has_emoji": true,
+          "has_title_line": true,
+          "total_chars": 450,
+          "key_points": [
+            "フォロワー増加",
+            "LINE登録",
+            "プロンプト配布"
+          ]
+        },
+        {
+          "post_number": 2,
+          "content": "プロフィールにこれ入れてない人は、マジで損してるので",
+          "threads_count": 1,
+          "has_link": false,
+          "has_image": false,
+          "has_emoji": false,
+          "has_title_line": false,
+          "total_chars": 100
+        },
+        {
+          "post_number": 3,
+          "content": "5ヶ月でフォロワー4342名、LINE登録1060件達成した僕が断言します",
+          "threads_count": 4,
+          "has_link": true,
+          "link_position": 4,
+          "has_image": false,
+          "has_emoji": true,
+          "has_title_line": true,
+          "total_chars": 480,
+          "key_points": [
+            "プロフィール最適化",
+            "3つの必須要素",
+            "フォロー率向上"
+          ]
+        },
+        {
+          "post_number": 4,
+          "content": "Threadsの投稿予約機能使ってない人、マジで損してます",
+          "threads_count": 4,
+          "has_link": true,
+          "link_position": 3,
+          "has_image": false,
+          "has_emoji": true,
+          "has_title_line": true,
+          "total_chars": 520,
+          "key_points": [
+            "投稿時間最適化",
+            "朝7時ゴールデンタイム",
+            "予約機能活用"
+          ]
+        }
+      ],
+      "posts_count": 4,
+      "notes": "文体特徴：敬語を使わず、話し言葉で親密感を出す。「マジで」「ヤバい」などの口語表現を頻用。実績の数字を大きく見せる。複数投稿スレッド形式を多用。リンクやCTA（Call To Action）を含める。タイトル行は【】で囲む形式。改行が多く、読みやすく設計。",
+      "posting_style": "教育・ノウハウ系、高速更新（複数投稿連続）、リンク含む、実績訴求型",
+      "average_thread_length": 3,
+      "emoji_usage": "高頻度",
+      "cta_frequency": "高い"
+    },
+    "asa_to_ame": {
+      "url": "https://www.threads.net/@asa_to_ame",
+      "profile": "アオト\nとある会社のクリエイター\nスレッズ自動化ツール『ポスロボ』作りました",
+      "follower_count": 9658,
+      "posts": [
+        {
+          "post_number": 1,
+          "content": "スレッズ上手すぎて、毎日フォロワーが爆増してる。もうすぐ1万人。",
+          "threads_count": 2,
+          "has_link": false,
+          "has_image": false,
+          "has_emoji": false,
+          "has_title_line": false,
+          "total_chars": 120,
+          "key_points": [
+            "フォロワー増加ペース"
+          ]
+        },
+        {
+          "post_number": 2,
+          "content": "投稿するジャンルを一貫させてください",
+          "threads_count": 2,
+          "has_link": true,
+          "link_position": 2,
+          "has_image": false,
+          "has_emoji": false,
+          "has_title_line": true,
+          "total_chars": 200,
+          "key_points": [
+            "発信軸の一貫性",
+            "プロフィール統一"
+          ]
+        },
+        {
+          "post_number": 3,
+          "content": "何回目か分からないけど、大事なことなので言わせてください。Threadsを伸ばしたいなら、",
+          "threads_count": 2,
+          "has_link": true,
+          "link_position": 2,
+          "has_image": false,
+          "has_emoji": false,
+          "has_title_line": true,
+          "total_chars": 300,
+          "key_points": [
+            "価値提供の重要性",
+            "即実践性",
+            "読者ニーズ"
+          ]
+        },
+        {
+          "post_number": 4,
+          "content": "スレッズに才能やセンスは関係ないです",
+          "threads_count": 2,
+          "has_link": true,
+          "link_position": 2,
+          "has_image": false,
+          "has_emoji": false,
+          "has_title_line": true,
+          "total_chars": 250,
+          "key_points": [
+            "継続の重要性",
+            "実績数字"
+          ]
+        },
+        {
+          "post_number": 5,
+          "content": "「権威性」での訴求が刺さりやすいです",
+          "threads_count": 2,
+          "has_link": true,
+          "link_position": 2,
+          "has_image": false,
+          "has_emoji": false,
+          "has_title_line": true,
+          "total_chars": 280,
+          "key_points": [
+            "ブルーオーシャン",
+            "権威性構築",
+            "ポジショニング"
+          ]
+        }
+      ],
+      "posts_count": 5,
+      "notes": "文体特徴：簡潔で短め。「です」「ます」の敬語を一部使用。「〜てください」で指示的。実績の数字を強調。タイトル行は通常の文章形式（【】囲みなし）。改行は少なめで、情報密度が高い。ツール『ポスロボ』のプロモーションを繰り返し挿入。",
+      "posting_style": "Tips型・短編型、継続重視、ツール販促型",
+      "average_thread_length": 2,
+      "emoji_usage": "低頻度",
+      "cta_frequency": "中程度（ツールリンク）"
+    }
+  }
+}
