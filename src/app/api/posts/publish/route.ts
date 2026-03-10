@@ -42,13 +42,16 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json();
 
-  // パターン判定: draft_id があれば既存下書き投稿、text があれば直接投稿
   const hasDraftId = "draft_id" in body && body.draft_id;
   const hasText = "text" in body && body.text;
+  const hasThreadPosts =
+    "thread_posts" in body &&
+    Array.isArray(body.thread_posts) &&
+    body.thread_posts.length >= 2;
 
-  if (!hasDraftId && !hasText) {
+  if (!hasDraftId && !hasText && !hasThreadPosts) {
     return NextResponse.json(
-      { error: "draft_id または text が必要です" },
+      { error: "draft_id, text, または thread_posts が必要です" },
       { status: 400 }
     );
   }
@@ -85,8 +88,33 @@ export async function POST(request: NextRequest) {
       draftText = draft.text;
       draftMediaUrls = draft.media_urls ?? [];
       draftId = draft.id;
+    } else if (hasThreadPosts && !hasText) {
+      draftText = body.thread_posts[0];
+      draftMediaUrls = Array.isArray(body.media_urls) ? body.media_urls : [];
+
+      const { data: newDraft, error: createError } = await supabase
+        .from("drafts")
+        .insert({
+          profile_id: user.id,
+          account_id: body.account_id,
+          text: body.thread_posts.join("\n\n"),
+          hashtags: [],
+          source: "manual",
+          status: "publishing",
+        })
+        .select()
+        .single();
+
+      if (createError || !newDraft) {
+        console.error("下書き作成エラー:", createError);
+        return NextResponse.json(
+          { error: "投稿の準備に失敗しました" },
+          { status: 500 }
+        );
+      }
+
+      draftId = newDraft.id;
     } else {
-      // パターン2: テキストを直接投稿（内部で下書きを作成）
       const parsed = publishDirectSchema.safeParse(body);
       if (!parsed.success) {
         return NextResponse.json(
@@ -96,8 +124,8 @@ export async function POST(request: NextRequest) {
       }
 
       draftText = parsed.data.text;
+      draftMediaUrls = Array.isArray(body.media_urls) ? body.media_urls : [];
 
-      // 内部下書きを作成（投稿の記録として）
       const { data: newDraft, error: createError } = await supabase
         .from("drafts")
         .insert({

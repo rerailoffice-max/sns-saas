@@ -42,7 +42,7 @@ interface GeneratedPost {
 
 interface AiAssistButtonProps {
   accountId: string;
-  onInsert: (text: string) => void;
+  onInsert: (text: string, mediaUrls?: string[]) => void;
   modelAccounts?: ModelAccount[];
 }
 
@@ -67,6 +67,7 @@ export function AiAssistButton({
   const [hookPattern, setHookPattern] = useState("auto");
   const [threadCount, setThreadCount] = useState("4");
   const [generatedThread, setGeneratedThread] = useState<string[]>([]);
+  const [generatedMediaUrls, setGeneratedMediaUrls] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState("theme");
   const [isGeneratingUrl, setIsGeneratingUrl] = useState(false);
   const [copiedUrlIndex, setCopiedUrlIndex] = useState<number | null>(null);
@@ -158,6 +159,7 @@ export function AiAssistButton({
 
       const data = await res.json();
       setGeneratedThread(data.data.thread_posts ?? []);
+      setGeneratedMediaUrls(data.data.media_urls ?? []);
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "AI生成に失敗しました"
@@ -168,7 +170,7 @@ export function AiAssistButton({
   };
 
   const handleInsertThread = () => {
-    onInsert(generatedThread.join("\n\n---\n\n"));
+    onInsert(generatedThread.join("\n\n---\n\n"), generatedMediaUrls);
     setOpen(false);
     toast.success("スレッドを挿入しました");
   };
@@ -401,6 +403,21 @@ export function AiAssistButton({
             {/* URL生成結果 */}
             {generatedThread.length > 0 && (
               <div className="space-y-3">
+                {generatedMediaUrls.length > 0 && (
+                  <div>
+                    <p className="text-sm font-medium mb-2">取得メディア</p>
+                    <div className="flex gap-2 overflow-x-auto">
+                      {generatedMediaUrls.map((url, i) => (
+                        <img
+                          key={i}
+                          src={url}
+                          alt={`メディア ${i + 1}`}
+                          className="h-20 w-20 rounded-md object-cover border shrink-0"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <p className="text-sm font-medium">生成結果</p>
                 {generatedThread.map((text, index) => (
                   <Card key={index}>

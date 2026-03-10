@@ -148,6 +148,7 @@ export async function POST(request: NextRequest) {
       const systemPrompt = buildThreadSystemPrompt(modelAnalysis, hook_pattern);
 
       let userContent: string;
+      let fetchedMediaUrls: string[] = [];
       if (source_url) {
         const urlContent = await fetchUrlContent(source_url);
         if (urlContent.error || !urlContent.text) {
@@ -159,6 +160,7 @@ export async function POST(request: NextRequest) {
             { status: 400 }
           );
         }
+        fetchedMediaUrls = urlContent.mediaUrls;
         userContent = `以下のURLの内容を元に、Threadsスレッド形式の投稿を生成してください。
 
 URL: ${urlContent.url}
@@ -205,6 +207,7 @@ ${thread_count ? `\nスレッドは${thread_count}件で構成してください
         data: {
           posts,
           thread_posts: Array.isArray(threadPosts) ? threadPosts : [],
+          media_urls: fetchedMediaUrls,
           model: model_account_id ? "model" : "default",
         },
       });

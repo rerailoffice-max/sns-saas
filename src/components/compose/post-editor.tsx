@@ -47,6 +47,7 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
   const [text, setText] = useState("");
   const [threadMode, setThreadMode] = useState(false);
   const [threadPosts, setThreadPosts] = useState<string[]>([]);
+  const [mediaUrls, setMediaUrls] = useState<string[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState(accounts[0]?.id ?? "");
   const [isSaving, setIsSaving] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
@@ -84,7 +85,10 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
     }
   };
 
-  const handleAiInsert = (generatedText: string) => {
+  const handleAiInsert = (generatedText: string, newMediaUrls?: string[]) => {
+    if (newMediaUrls && newMediaUrls.length > 0) {
+      setMediaUrls(newMediaUrls);
+    }
     if (generatedText.includes("---")) {
       const parts = generatedText
         .split("---")
@@ -151,8 +155,8 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
     setError(null);
 
     const payload = threadMode
-      ? { account_id: selectedAccountId, thread_posts: threadPosts }
-      : { account_id: selectedAccountId, text, hashtags };
+      ? { account_id: selectedAccountId, thread_posts: threadPosts, media_urls: mediaUrls }
+      : { account_id: selectedAccountId, text, hashtags, media_urls: mediaUrls };
 
     try {
       const res = await fetch("/api/posts/publish", {
@@ -315,6 +319,33 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
                     ))}
                   </div>
                   <CharCounter current={charCount} max={MAX_CHARS} />
+                </div>
+              </div>
+            )}
+
+            {/* メディアプレビュー */}
+            {mediaUrls.length > 0 && (
+              <div>
+                <p className="text-sm font-medium mb-2">添付メディア</p>
+                <div className="flex gap-2 overflow-x-auto">
+                  {mediaUrls.map((url, i) => (
+                    <div key={i} className="relative shrink-0">
+                      <img
+                        src={url}
+                        alt={`メディア ${i + 1}`}
+                        className="h-24 w-24 rounded-md object-cover border"
+                      />
+                      <button
+                        type="button"
+                        className="absolute -top-1 -right-1 rounded-full bg-destructive text-destructive-foreground h-5 w-5 flex items-center justify-center text-xs"
+                        onClick={() =>
+                          setMediaUrls((prev) => prev.filter((_, idx) => idx !== i))
+                        }
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
