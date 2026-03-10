@@ -26,8 +26,15 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Sparkles, Loader2, Copy, Check, Link2 } from "lucide-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Sparkles, Loader2, Copy, Check, Link2, Code, ChevronDown, Heart, Eye } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
+import { HOOK_PATTERNS, THREAD_TEMPLATES, type HookPattern } from "@/lib/prompt-engine";
 
 interface ModelAccount {
   id: string;
@@ -39,6 +46,13 @@ interface GeneratedPost {
   text: string;
   style: string;
 }
+
+const STYLE_PRESETS = [
+  { id: "breaking", name: "速報型", description: "チャエン型の高頻度速報スタイル", models: ["masahirochaen"], hook: "A" },
+  { id: "tips", name: "Tips型", description: "すぐる型の質重視・保存価値スタイル", models: ["SuguruKun_ai"], hook: "G" },
+  { id: "explanation", name: "解説型", description: "くどう型の長文あのー・CTA重視", models: ["kudooo_ai"], hook: "B" },
+  { id: "short", name: "短文型", description: "アオト型の短文リスト・画像活用", models: ["asa_to_ame"], hook: "C" },
+] as const;
 
 interface AiAssistButtonProps {
   accountId: string;
@@ -71,6 +85,23 @@ export function AiAssistButton({
   const [activeTab, setActiveTab] = useState("theme");
   const [isGeneratingUrl, setIsGeneratingUrl] = useState(false);
   const [copiedUrlIndex, setCopiedUrlIndex] = useState<number | null>(null);
+  const [lastSystemPrompt, setLastSystemPrompt] = useState<string | null>(null);
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [selectedResearchModels, setSelectedResearchModels] = useState<string[]>([]);
+  const [showHookCards, setShowHookCards] = useState(false);
+
+  const toggleResearchModel = (username: string) => {
+    setSelectedResearchModels((prev) =>
+      prev.includes(username)
+        ? prev.filter((u) => u !== username)
+        : [...prev, username]
+    );
+  };
+
+  const applyPreset = (preset: (typeof STYLE_PRESETS)[number]) => {
+    setSelectedResearchModels([...preset.models]);
+    setHookPattern(preset.hook);
+  };
 
   const handleGenerate = async () => {
     if (!theme.trim()) {
@@ -103,6 +134,7 @@ export function AiAssistButton({
 
       const data = await res.json();
       setGeneratedPosts(data.data.posts ?? []);
+      setLastSystemPrompt(data.data.system_prompt ?? null);
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "AI生成に失敗しました"
@@ -149,6 +181,7 @@ export function AiAssistButton({
           source_url: sourceUrl,
           hook_pattern: hookPattern === "auto" ? undefined : hookPattern,
           thread_count: parseInt(threadCount),
+          selected_models: selectedResearchModels.length > 0 ? selectedResearchModels : undefined,
         }),
       });
 
@@ -160,6 +193,7 @@ export function AiAssistButton({
       const data = await res.json();
       setGeneratedThread(data.data.thread_posts ?? []);
       setGeneratedMediaUrls(data.data.media_urls ?? []);
+      setLastSystemPrompt(data.data.system_prompt ?? null);
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "AI生成に失敗しました"
@@ -347,38 +381,155 @@ export function AiAssistButton({
               </div>
             </div>
 
-            {/* フックパターン */}
+            {/* スタイルプリセット */}
             <div>
-              <label className="text-sm font-medium">フックパターン</label>
-              <Select value={hookPattern} onValueChange={setHookPattern}>
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="選択..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="auto">自動</SelectItem>
-                  <SelectItem value="A">A: 速報型</SelectItem>
-                  <SelectItem value="B">B: 問題提起型</SelectItem>
-                  <SelectItem value="C">C: やばい型</SelectItem>
-                  <SelectItem value="D">D: 数字型</SelectItem>
-                  <SelectItem value="E">E: 断言型</SelectItem>
-                  <SelectItem value="F">F: 質問型</SelectItem>
-                </SelectContent>
-              </Select>
+              <label className="text-sm font-medium">スタイルプリセット</label>
+              <div className="grid grid-cols-2 gap-2 mt-1">
+                {STYLE_PRESETS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => applyPreset(preset)}
+                    className={`rounded-md border p-2 text-left text-xs transition-colors hover:bg-accent/50 ${
+                      selectedResearchModels.length === preset.models.length &&
+                      preset.models.every((m) => selectedResearchModels.includes(m))
+                        ? "border-primary bg-accent/30"
+                        : ""
+                    }`}
+                  >
+                    <span className="font-medium">{preset.name}</span>
+                    <p className="text-muted-foreground mt-0.5">{preset.description}</p>
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* スレッド件数 */}
+            {/* フックパターン選択 */}
             <div>
-              <label className="text-sm font-medium">スレッド件数</label>
-              <Select value={threadCount} onValueChange={setThreadCount}>
-                <SelectTrigger className="mt-1">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="3">3</SelectItem>
-                  <SelectItem value="4">4</SelectItem>
-                  <SelectItem value="5">5</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">フックパターン</label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs h-6 px-2"
+                  onClick={() => setShowHookCards(!showHookCards)}
+                >
+                  {showHookCards ? "ドロップダウン表示" : "カード表示"}
+                </Button>
+              </div>
+
+              {showHookCards ? (
+                <div className="grid grid-cols-2 gap-2 mt-1">
+                  <button
+                    type="button"
+                    onClick={() => setHookPattern("auto")}
+                    className={`rounded-md border p-2 text-left text-xs transition-colors hover:bg-accent/50 ${
+                      hookPattern === "auto" ? "border-primary bg-accent/30" : ""
+                    }`}
+                  >
+                    <span className="font-medium">自動</span>
+                    <p className="text-muted-foreground mt-0.5">AIが最適なパターンを選択</p>
+                  </button>
+                  {HOOK_PATTERNS.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setHookPattern(p.id)}
+                      className={`rounded-md border p-2 text-left text-xs transition-colors hover:bg-accent/50 ${
+                        hookPattern === p.id ? "border-primary bg-accent/30" : ""
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{p.id}: {p.name}</span>
+                        <span className="flex items-center gap-1 text-muted-foreground">
+                          <Heart className="h-3 w-3" />
+                          {p.avgLikes}
+                        </span>
+                      </div>
+                      <p className="text-muted-foreground mt-0.5 line-clamp-1">{p.examples[0]}</p>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <Select value={hookPattern} onValueChange={setHookPattern}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="選択..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">自動</SelectItem>
+                    {HOOK_PATTERNS.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.id}: {p.name}（いいね{p.avgLikes}件）
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+
+            {/* スレッド構成選択 */}
+            <div>
+              <label className="text-sm font-medium">スレッド構成</label>
+              <div className="grid grid-cols-2 gap-2 mt-1">
+                {([3, 4, 5, 6] as const).map((count) => {
+                  const tmpl = THREAD_TEMPLATES[count];
+                  if (!tmpl) return null;
+                  return (
+                    <button
+                      key={count}
+                      type="button"
+                      onClick={() => setThreadCount(String(count))}
+                      className={`rounded-md border p-2 text-left text-xs transition-colors hover:bg-accent/50 ${
+                        threadCount === String(count) ? "border-primary bg-accent/30" : ""
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{count}件</span>
+                        <Badge variant="secondary" className="text-[10px]">{tmpl.description}</Badge>
+                      </div>
+                      <div className="mt-1 space-y-0.5">
+                        {tmpl.posts.slice(0, 3).map((post, i) => (
+                          <p key={i} className="text-muted-foreground truncate">
+                            {i + 1}. {post.role}
+                          </p>
+                        ))}
+                        {tmpl.posts.length > 3 && (
+                          <p className="text-muted-foreground">...他{tmpl.posts.length - 3}件</p>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 参考モデル選択 */}
+            <div>
+              <label className="text-sm font-medium">参考モデル（複数選択可）</label>
+              <div className="grid grid-cols-2 gap-2 mt-1">
+                {[
+                  { username: "kudooo_ai", label: "くどう", sub: "Threads / 解説型" },
+                  { username: "asa_to_ame", label: "アオト", sub: "Threads / 短文型" },
+                  { username: "masahirochaen", label: "チャエン", sub: "X / 速報型" },
+                  { username: "SuguruKun_ai", label: "すぐる", sub: "X / Tips型" },
+                ].map((m) => (
+                  <label
+                    key={m.username}
+                    className={`flex items-center gap-2 rounded-md border p-2 text-xs cursor-pointer transition-colors hover:bg-accent/50 ${
+                      selectedResearchModels.includes(m.username) ? "border-primary bg-accent/30" : ""
+                    }`}
+                  >
+                    <Checkbox
+                      checked={selectedResearchModels.includes(m.username)}
+                      onCheckedChange={() => toggleResearchModel(m.username)}
+                    />
+                    <div>
+                      <span className="font-medium">@{m.username}</span>
+                      <p className="text-muted-foreground">{m.sub}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
             </div>
 
             {/* スレッド生成ボタン */}
@@ -471,6 +622,26 @@ export function AiAssistButton({
             )}
           </TabsContent>
         </Tabs>
+
+        {/* 使用プロンプト確認 */}
+        {lastSystemPrompt && (
+          <Collapsible open={promptOpen} onOpenChange={setPromptOpen} className="mt-4 border-t pt-4">
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="sm" className="w-full justify-between text-muted-foreground">
+                <span className="flex items-center gap-2">
+                  <Code className="h-4 w-4" />
+                  使用プロンプトを確認
+                </span>
+                <ChevronDown className={`h-4 w-4 transition-transform ${promptOpen ? "rotate-180" : ""}`} />
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <pre className="mt-2 max-h-64 overflow-auto rounded-md bg-muted p-3 text-xs whitespace-pre-wrap break-words">
+                {lastSystemPrompt}
+              </pre>
+            </CollapsibleContent>
+          </Collapsible>
+        )}
       </DialogContent>
     </Dialog>
   );

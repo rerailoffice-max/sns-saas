@@ -15,9 +15,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { CharCounter } from "./char-counter";
 import { PostPreview } from "./post-preview";
+import { EngagementScore } from "./engagement-score";
 import { AiAssistButton } from "./ai-assist-button";
 import { HashtagSuggest } from "./hashtag-suggest";
-import { Save, Send, Loader2, AlertCircle, X, Plus, ImagePlus } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Save, Send, Loader2, AlertCircle, X, Plus, ImagePlus, Share2 } from "lucide-react";
 import { toast } from "sonner";
 import type { HashtagStats } from "@/lib/hashtag-recommend";
 
@@ -70,6 +72,7 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [crossPostAccounts, setCrossPostAccounts] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const uploadFiles = useCallback(async (files: FileList | File[]) => {
@@ -246,9 +249,11 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
     setIsPublishing(true);
     setError(null);
 
+    const allAccounts = [selectedAccountId, ...crossPostAccounts];
+
     const payload = threadMode
-      ? { account_id: selectedAccountId, thread_posts: threadPosts, media_urls: mediaUrls }
-      : { account_id: selectedAccountId, text, hashtags, media_urls: mediaUrls };
+      ? { account_id: selectedAccountId, thread_posts: threadPosts, media_urls: mediaUrls, cross_post_accounts: crossPostAccounts.length > 0 ? crossPostAccounts : undefined }
+      : { account_id: selectedAccountId, text, hashtags, media_urls: mediaUrls, cross_post_accounts: crossPostAccounts.length > 0 ? crossPostAccounts : undefined };
 
     try {
       const res = await fetch("/api/posts/publish", {
@@ -262,7 +267,11 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
         throw new Error(data.error ?? "投稿に失敗しました");
       }
 
-      toast.success("投稿しました！");
+      toast.success(
+        allAccounts.length > 1
+          ? `${allAccounts.length}アカウントに投稿しました！`
+          : "投稿しました！"
+      );
       router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "投稿に失敗しました");
@@ -321,6 +330,45 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
                 </SelectContent>
               </Select>
             </div>
+
+            {/* クロスポスト */}
+            {accounts.length > 1 && (
+              <div className="rounded-md border p-3 space-y-2">
+                <label className="text-xs font-medium flex items-center gap-1.5 text-muted-foreground">
+                  <Share2 className="h-3.5 w-3.5" />
+                  クロスポスト（同時投稿先）
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {accounts
+                    .filter((a) => a.id !== selectedAccountId)
+                    .map((a) => (
+                      <label
+                        key={a.id}
+                        className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs cursor-pointer transition-colors ${
+                          crossPostAccounts.includes(a.id)
+                            ? "border-primary bg-accent/30"
+                            : "hover:bg-accent/50"
+                        }`}
+                      >
+                        <Checkbox
+                          checked={crossPostAccounts.includes(a.id)}
+                          onCheckedChange={(checked) => {
+                            setCrossPostAccounts((prev) =>
+                              checked
+                                ? [...prev, a.id]
+                                : prev.filter((id) => id !== a.id)
+                            );
+                          }}
+                        />
+                        <Badge variant="outline" className="text-[10px] capitalize">
+                          {a.platform}
+                        </Badge>
+                        @{a.username}
+                      </label>
+                    ))}
+                </div>
+              </div>
+            )}
 
             {/* スレッドモード切替 */}
             <div className="flex items-center justify-between">
@@ -566,12 +614,18 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
         </Card>
       </div>
 
-      {/* プレビュー */}
-      <div>
+      {/* プレビュー + エンゲージメント予測 */}
+      <div className="space-y-4">
         <PostPreview
           text={threadMode ? threadPosts.join("\n\n") : text}
           username={accounts.find((a) => a.id === selectedAccountId)?.username ?? "user"}
           displayName={accounts.find((a) => a.id === selectedAccountId)?.display_name ?? "ユーザー"}
+        />
+        <EngagementScore
+          text={threadMode ? "" : text}
+          threadPosts={threadMode ? threadPosts : undefined}
+          hasMedia={mediaUrls.length > 0}
+          platform={(accounts.find((a) => a.id === selectedAccountId)?.platform as "threads" | "x") ?? "threads"}
         />
       </div>
     </div>

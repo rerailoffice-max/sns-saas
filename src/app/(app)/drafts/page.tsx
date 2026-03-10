@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PenSquare, Clock } from "lucide-react";
 import Link from "next/link";
+import { DraftDeleteButton } from "@/components/drafts/draft-delete-button";
+import { BatchGenerateDialog } from "@/components/drafts/batch-generate-dialog";
 
 // モックデータ（Supabase未接続時用）
 const MOCK_DRAFTS = [
@@ -53,7 +55,7 @@ export default async function DraftsPage() {
     !process.env.NEXT_PUBLIC_SUPABASE_URL ||
     !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   ) {
-    return <DraftsView drafts={MOCK_DRAFTS} />;
+    return <DraftsView drafts={MOCK_DRAFTS} accountId={null} />;
   }
 
   const supabase = await createClient();
@@ -88,12 +90,21 @@ export default async function DraftsPage() {
     .in("status", ["draft", "scheduled"])
     .order("updated_at", { ascending: false });
 
-  return <DraftsView drafts={drafts ?? []} />;
+  const { data: accounts } = await supabase
+    .from("social_accounts")
+    .select("id")
+    .eq("profile_id", user.id)
+    .eq("is_active", true)
+    .limit(1);
+
+  const primaryAccountId = accounts?.[0]?.id ?? null;
+
+  return <DraftsView drafts={drafts ?? []} accountId={primaryAccountId} />;
 }
 
 /** 下書き一覧表示コンポーネント（実データ・デモデータ共通） */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function DraftsView({ drafts }: { drafts: any[] }) {
+function DraftsView({ drafts, accountId }: { drafts: any[]; accountId?: string | null }) {
   const statusLabels: Record<
     string,
     { label: string; variant: "default" | "secondary" | "outline" }
@@ -112,12 +123,15 @@ function DraftsView({ drafts }: { drafts: any[] }) {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">下書き</h1>
-        <Button asChild>
-          <Link href="/compose">
-            <PenSquare className="mr-2 h-4 w-4" />
-            新規作成
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          {accountId && <BatchGenerateDialog accountId={accountId} />}
+          <Button asChild>
+            <Link href="/compose">
+              <PenSquare className="mr-2 h-4 w-4" />
+              新規作成
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {drafts && drafts.length > 0 ? (
@@ -203,6 +217,7 @@ function DraftsView({ drafts }: { drafts: any[] }) {
                           <PenSquare className="h-4 w-4" />
                         </Link>
                       </Button>
+                      <DraftDeleteButton draftId={draft.id} />
                     </div>
                   </div>
                 </CardContent>

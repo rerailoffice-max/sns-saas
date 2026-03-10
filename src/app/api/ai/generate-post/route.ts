@@ -2,28 +2,29 @@
  * AI投稿生成API
  * POST /api/ai/generate-post
  *
- * Claude APIを使って、バズりやすい投稿文を3パターン生成
- * モデルアカウントの文体指定にも対応
- * source_url指定時はURL取得→スレッド形式生成、thread_mode時はスレッド最適化プロンプトを使用
+ * 7,000件超の研究データに基づくプロンプトエンジンで投稿文を生成。
+ * スレッド形式（URL/テーマ）と3パターン単発に対応。
  */
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { fetchUrlContent } from "@/lib/url-fetcher";
-import { buildThreadSystemPrompt } from "@/lib/threads-optimization";
+import { buildPostPrompt, buildSinglePostPrompt } from "@/lib/prompt-engine";
 import type { AnalysisResult } from "@/types/database";
 
 const requestSchema = z.object({
   theme: z.string().min(1, "テーマは必須です").max(200),
   account_id: z.string().uuid(),
   model_account_id: z.string().uuid().optional(),
+  selected_models: z.array(z.string()).optional(),
   style: z.enum(["default", "model", "custom"]).optional().default("default"),
   custom_instructions: z.string().max(500).optional(),
   source_url: z.string().optional(),
   thread_mode: z.boolean().optional().default(false),
-  hook_pattern: z.enum(["A", "B", "C", "D", "E", "F"]).optional(),
-  thread_count: z.number().min(3).max(5).optional(),
+  hook_pattern: z.enum(["A", "B", "C", "D", "E", "F", "G"]).optional(),
+  thread_count: z.number().min(3).max(6).optional(),
+  platform: z.enum(["threads", "x"]).optional().default("threads"),
 });
 
 export async function POST(request: NextRequest) {
@@ -57,10 +58,12 @@ export async function POST(request: NextRequest) {
     theme,
     style,
     model_account_id,
+    selected_models,
     custom_instructions,
     thread_mode,
     hook_pattern,
     thread_count,
+    platform,
   } = parsed.data;
 
   let source_url = parsed.data.source_url;
@@ -75,38 +78,6 @@ export async function POST(request: NextRequest) {
       .select("custom_writing_instructions")
       .eq("id", user.id)
       .single();
-
-    // モデルアカウントの分析結果を取得（指定時）
-    let modelContext = "";
-    if (style === "model" && model_account_id) {
-      const { data: modelAccount } = await supabase
-        .from("model_accounts")
-        .select("username, display_name, analysis_result")
-        .eq("id", model_account_id)
-        .eq("profile_id", user.id)
-        .single();
-
-      if (modelAccount?.analysis_result) {
-        const analysis = modelAccount.analysis_result as Record<string, unknown>;
-        modelContext = `
-以下のモデルアカウント（@${modelAccount.username}）の文体で生成してください：
-- 文体: ${JSON.stringify(analysis.writing_style ?? {})}
-- ハッシュタグ戦略: ${JSON.stringify(analysis.hashtag_strategy ?? {})}
-- モデリングのコツ: ${JSON.stringify(analysis.modeling_tips ?? [])}
-`;
-      }
-    }
-
-    // カスタム指示
-    let writingInstructions = "";
-    if (style === "custom" && custom_instructions) {
-      writingInstructions = `\nユーザーのカスタム指示: ${custom_instructions}`;
-    } else if (
-      style === "default" &&
-      profile?.custom_writing_instructions
-    ) {
-      writingInstructions = `\nユーザーの文体指示: ${profile.custom_writing_instructions}`;
-    }
 
     // 自分の過去投稿からパターンを参考にする
     const { data: recentPosts } = await supabase
@@ -126,11 +97,6 @@ export async function POST(request: NextRequest) {
       .order("likes", { ascending: false })
       .limit(10);
 
-    const topPostsContext =
-      recentPosts && recentPosts.length > 0
-        ? `\n参考: ユーザーの過去のバズ投稿TOP10:\n${recentPosts.map((p, i) => `${i + 1}. ${p.post_text} (いいね${p.likes})`).join("\n")}`
-        : "";
-
     // Claude API呼び出し
     const anthropic = new Anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY,
@@ -149,7 +115,22 @@ export async function POST(request: NextRequest) {
         modelAnalysis = (modelAccount?.analysis_result as AnalysisResult) ?? null;
       }
 
-      const systemPrompt = buildThreadSystemPrompt(modelAnalysis, hook_pattern);
+      const systemPrompt = buildPostPrompt({
+        platform,
+        selectedModels: selected_models ?? [],
+        hookPattern: hook_pattern,
+        threadCount: thread_count,
+        customInstructions: custom_instructions,
+        modelAnalysis,
+        writingInstructions:
+          style === "custom"
+            ? custom_instructions
+            : profile?.custom_writing_instructions ?? undefined,
+        topPostsContext:
+          recentPosts && recentPosts.length > 0
+            ? recentPosts.map((p, i) => `${i + 1}. ${p.post_text} (いいね${p.likes})`).join("\n")
+            : undefined,
+      });
 
       let userContent: string;
       let fetchedMediaUrls: string[] = [];
@@ -225,30 +206,36 @@ ${thread_count ? `\nスレッドは${thread_count}件で構成してください
           media_urls: fetchedMediaUrls,
           source_url: source_url ?? null,
           model: model_account_id ? "model" : "default",
+          system_prompt: systemPrompt,
         },
       });
     }
 
-    // 既存フロー: 3パターン単発投稿生成
-    const systemPrompt = `あなたはSNS投稿のプロコピーライターです。Threadsで「バズる」投稿文を生成してください。
+    // 3パターン単発投稿生成（新プロンプトエンジン）
+    let singleModelAnalysis: AnalysisResult | null = null;
+    if (style === "model" && model_account_id) {
+      const { data: modelAccount } = await supabase
+        .from("model_accounts")
+        .select("analysis_result")
+        .eq("id", model_account_id)
+        .eq("profile_id", user.id)
+        .single();
+      singleModelAnalysis = (modelAccount?.analysis_result as AnalysisResult) ?? null;
+    }
 
-ルール:
-- 500文字以内（Threads制限）
-- 読者の心を掴むフック（冒頭3行）が最重要
-- 具体的な数字や事実を入れる
-- 問いかけや読者参加を促す要素を入れる
-- 適切なハッシュタグを2-3個つける
-- 必ず3パターン生成する
-
-出力形式（JSON）:
-{
-  "posts": [
-    {"text": "投稿文1", "style": "スタイル説明"},
-    {"text": "投稿文2", "style": "スタイル説明"},
-    {"text": "投稿文3", "style": "スタイル説明"}
-  ]
-}
-${modelContext}${writingInstructions}${topPostsContext}`;
+    const systemPrompt = buildSinglePostPrompt({
+      platform,
+      selectedModels: selected_models ?? [],
+      modelAnalysis: singleModelAnalysis,
+      writingInstructions:
+        style === "custom"
+          ? custom_instructions
+          : profile?.custom_writing_instructions ?? undefined,
+      topPostsContext:
+        recentPosts && recentPosts.length > 0
+          ? recentPosts.map((p, i) => `${i + 1}. ${p.post_text} (いいね${p.likes})`).join("\n")
+          : undefined,
+    });
 
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
@@ -285,6 +272,7 @@ ${modelContext}${writingInstructions}${topPostsContext}`;
       data: {
         posts: generated.posts ?? [],
         model: model_account_id ? "model" : "default",
+        system_prompt: systemPrompt,
       },
     });
   } catch (err) {

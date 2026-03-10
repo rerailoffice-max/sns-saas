@@ -168,6 +168,11 @@ export function AnalysisReport({
     リポスト: cat.avgReposts,
   }));
 
+  // 「未分類」のみの場合はグラフを表示しない
+  const hasMeaningfulCategories =
+    chartData.length > 0 &&
+    !(chartData.length === 1 && chartData[0].name === "未分類");
+
   return (
     <div className="space-y-6">
       {/* 統計サマリーカード */}
@@ -273,7 +278,7 @@ export function AnalysisReport({
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {chartData.length > 0 ? (
+              {hasMeaningfulCategories ? (
                 <ResponsiveContainer width="100%" height={400}>
                   <BarChart
                     data={chartData}
@@ -302,8 +307,12 @@ export function AnalysisReport({
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="flex items-center justify-center h-64 text-muted-foreground">
-                  投稿データがないためグラフを表示できません
+                <div className="flex flex-col items-center justify-center h-64 text-center">
+                  <Sparkles className="h-10 w-10 text-muted-foreground/40 mb-3" />
+                  <p className="text-muted-foreground font-medium">カテゴリ分類がまだ実行されていません</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    AI分析を実行すると、投稿カテゴリ別のエンゲージメント比較が表示されます
+                  </p>
                 </div>
               )}
             </CardContent>
@@ -629,6 +638,24 @@ export function AnalysisReport({
                   {/* スレッド構成分析 */}
                   {analysisResult.thread_analysis &&
                     analysisResult.thread_analysis.by_length?.length > 0 && (() => {
+                      if (analysisResult.thread_analysis!.by_length.length <= 1) {
+                        return (
+                          <Card>
+                            <CardHeader>
+                              <CardTitle>スレッド構成分析</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              <div className="flex flex-col items-center justify-center h-48 text-center">
+                                <TrendingUp className="h-10 w-10 text-muted-foreground/40 mb-3" />
+                                <p className="text-muted-foreground font-medium">データ不足</p>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                  スレッド長の比較にはスレッド構成が2種類以上必要です。より多くの投稿を収集してください。
+                                </p>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        );
+                      }
                       const hasViews = analysisResult.thread_analysis!.by_length.some((d) => d.avg_views > 0);
                       const chartData = analysisResult.thread_analysis!.by_length.map((d) => ({
                         name: d.length === 1 ? "単発投稿" : `${d.length}投稿`,

@@ -7,7 +7,7 @@
 // 共通型
 // ============================================================
 
-export type Platform = "threads" | "instagram" | "x";
+export type Platform = "threads" | "instagram" | "x" | "facebook";
 export type DraftSource = "manual" | "openclaw" | "ai";
 export type DraftStatus =
   | "draft"

@@ -7,6 +7,7 @@ import type { Platform } from "@/types/database";
 import type { SNSAdapter } from "./types";
 import { ThreadsAdapter } from "./threads";
 import { XAdapter } from "./x";
+import { FacebookAdapter } from "./facebook";
 
 // アダプターのシングルトンインスタンス
 const adapters: Partial<Record<Platform, SNSAdapter>> = {};
@@ -29,10 +30,12 @@ export function getAdapter(platform: Platform): SNSAdapter {
       adapter = new ThreadsAdapter();
       break;
     case "instagram":
-      // MVP-1で実装予定
       throw new Error("Instagram アダプターは未実装です（MVP-1で対応予定）");
     case "x":
       adapter = new XAdapter();
+      break;
+    case "facebook":
+      adapter = new FacebookAdapter();
       break;
     default:
       throw new Error(`未対応のプラットフォーム: ${platform}`);
@@ -46,5 +49,5 @@ export function getAdapter(platform: Platform): SNSAdapter {
  * 対応済みプラットフォーム一覧を取得
  */
 export function getSupportedPlatforms(): Platform[] {
-  return ["threads", "x"];
+  return ["threads", "x", "facebook"];
 }
