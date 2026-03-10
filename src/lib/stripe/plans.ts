@@ -4,7 +4,6 @@
  */
 
 import type { SubscriptionPlan } from "@/types/database";
-import { isAdmin } from "@/lib/admin";
 
 export interface PlanLimits {
   maxAccounts: number;
@@ -22,17 +21,17 @@ export interface PlanLimits {
 
 export const PLAN_LIMITS: Record<SubscriptionPlan, PlanLimits> = {
   free: {
-    maxAccounts: 1,
-    maxScheduledPerMonth: 5,
-    maxScheduleDays: 7,
-    analyticsRetentionDays: 7,
-    openclawEnabled: false,
-    openclawPerDay: 0,
-    aiEditsPerMonth: 0,
-    apiRatePerDay: 0,
-    maxModelAccounts: 0,
-    aiOptimizationEnabled: false,
-    advancedAnalyticsAiSummary: false,
+    maxAccounts: 5,
+    maxScheduledPerMonth: Infinity,
+    maxScheduleDays: 90,
+    analyticsRetentionDays: 90,
+    openclawEnabled: true,
+    openclawPerDay: Infinity,
+    aiEditsPerMonth: 30,
+    apiRatePerDay: 1000,
+    maxModelAccounts: 5,
+    aiOptimizationEnabled: true,
+    advancedAnalyticsAiSummary: true,
   },
   starter: {
     maxAccounts: 3,
@@ -64,13 +63,10 @@ export const PLAN_LIMITS: Record<SubscriptionPlan, PlanLimits> = {
 
 /**
  * プラン制限を取得
- * 管理者の場合はprofessionalプラン相当の制限を返す
+ * 全ユーザーにprofessional相当の制限を返す（全機能利用可能）
  */
-export function getPlanLimits(plan: SubscriptionPlan, userId?: string): PlanLimits {
-  if (userId && isAdmin(userId)) {
-    return PLAN_LIMITS.professional;
-  }
-  return PLAN_LIMITS[plan];
+export function getPlanLimits(_plan: SubscriptionPlan, _userId?: string): PlanLimits {
+  return PLAN_LIMITS.professional;
 }
 
 /**

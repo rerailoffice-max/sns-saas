@@ -119,12 +119,14 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
           hashtags,
           source: "manual" as const,
           thread_posts: threadPosts,
+          media_urls: mediaUrls,
         }
       : {
           account_id: selectedAccountId,
           text,
           hashtags,
           source: "manual" as const,
+          media_urls: mediaUrls,
         };
 
     try {

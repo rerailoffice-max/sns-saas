@@ -75,6 +75,7 @@ export default async function DraftsPage() {
       status,
       source,
       hashtags,
+      media_urls,
       created_at,
       updated_at,
       social_accounts (
@@ -176,6 +177,20 @@ function DraftsView({ drafts }: { drafts: any[] }) {
                             >
                               {tag}
                             </Badge>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* メディアプレビュー */}
+                      {draft.media_urls && draft.media_urls.length > 0 && (
+                        <div className="flex gap-2 overflow-x-auto">
+                          {draft.media_urls.map((url: string, i: number) => (
+                            <img
+                              key={i}
+                              src={url}
+                              alt={`メディア ${i + 1}`}
+                              className="h-16 w-16 rounded-md object-cover border shrink-0"
+                            />
                           ))}
                         </div>
                       )}

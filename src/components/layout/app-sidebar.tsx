@@ -70,20 +70,6 @@ export function AppSidebar() {
           })}
         </div>
       </nav>
-
-      {/* フッター: プラン情報 */}
-      <div className="border-t p-4">
-        <div className="rounded-lg bg-muted p-3">
-          <p className="text-xs text-muted-foreground">現在のプラン</p>
-          <p className="text-sm font-medium">Free</p>
-          <Link
-            href="/settings/billing"
-            className="mt-1 text-xs text-primary hover:underline"
-          >
-            アップグレード →
-          </Link>
-        </div>
-      </div>
     </aside>
   );
 }
