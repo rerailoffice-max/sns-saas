@@ -4,11 +4,15 @@
  *
  * Claude APIを使って、バズりやすい投稿文を3パターン生成
  * モデルアカウントの文体指定にも対応
+ * source_url指定時はURL取得→スレッド形式生成、thread_mode時はスレッド最適化プロンプトを使用
  */
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
+import { fetchUrlContent } from "@/lib/url-fetcher";
+import { buildThreadSystemPrompt } from "@/lib/threads-optimization";
+import type { AnalysisResult } from "@/types/database";
 
 const requestSchema = z.object({
   theme: z.string().min(1, "テーマは必須です").max(200),
@@ -16,6 +20,10 @@ const requestSchema = z.object({
   model_account_id: z.string().uuid().optional(),
   style: z.enum(["default", "model", "custom"]).optional().default("default"),
   custom_instructions: z.string().max(500).optional(),
+  source_url: z.string().url().optional(),
+  thread_mode: z.boolean().optional().default(false),
+  hook_pattern: z.enum(["A", "B", "C", "D", "E", "F"]).optional(),
+  thread_count: z.number().min(3).max(5).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -45,7 +53,16 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { theme, style, model_account_id, custom_instructions } = parsed.data;
+  const {
+    theme,
+    style,
+    model_account_id,
+    custom_instructions,
+    source_url,
+    thread_mode,
+    hook_pattern,
+    thread_count,
+  } = parsed.data;
 
   try {
     // ユーザーのカスタムライティング指示を取得
@@ -115,6 +132,85 @@ export async function POST(request: NextRequest) {
       apiKey: process.env.ANTHROPIC_API_KEY,
     });
 
+    // source_url または thread_mode の場合: スレッド形式生成
+    if (source_url || thread_mode) {
+      let modelAnalysis: AnalysisResult | null = null;
+      if (style === "model" && model_account_id) {
+        const { data: modelAccount } = await supabase
+          .from("model_accounts")
+          .select("analysis_result")
+          .eq("id", model_account_id)
+          .eq("profile_id", user.id)
+          .single();
+        modelAnalysis = (modelAccount?.analysis_result as AnalysisResult) ?? null;
+      }
+
+      const systemPrompt = buildThreadSystemPrompt(modelAnalysis, hook_pattern);
+
+      let userContent: string;
+      if (source_url) {
+        const urlContent = await fetchUrlContent(source_url);
+        if (urlContent.error || !urlContent.text) {
+          return NextResponse.json(
+            {
+              error: "URLの取得に失敗しました",
+              details: urlContent.error ?? "コンテンツが取得できませんでした",
+            },
+            { status: 400 }
+          );
+        }
+        userContent = `以下のURLの内容を元に、Threadsスレッド形式の投稿を生成してください。
+
+URL: ${urlContent.url}
+タイトル: ${urlContent.title ?? "（なし）"}
+本文:
+${urlContent.text}
+${thread_count ? `\nスレッドは${thread_count}件で構成してください。` : ""}
+
+上記内容を要約・再構成し、バズりやすいスレッド形式でJSON配列（各要素は1投稿文の文字列）で返してください。`;
+      } else {
+        userContent = `テーマ: ${theme}
+${thread_count ? `\nスレッドは${thread_count}件で構成してください。` : ""}
+
+上記テーマでバズりやすいThreadsスレッド形式の投稿を生成してください。JSON配列（各要素は1投稿文の文字列）で返してください。`;
+      }
+
+      const response = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 2000,
+        messages: [{ role: "user", content: userContent }],
+        system: systemPrompt,
+      });
+
+      const responseText =
+        response.content[0].type === "text" ? response.content[0].text : "";
+      let jsonStr = responseText;
+      const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (jsonMatch) {
+        jsonStr = jsonMatch[1].trim();
+      } else {
+        const arrayMatch = responseText.match(/\[[\s\S]*\]/);
+        if (arrayMatch) jsonStr = arrayMatch[0];
+      }
+
+      const threadPosts = JSON.parse(jsonStr) as string[];
+      const posts = Array.isArray(threadPosts)
+        ? threadPosts.map((text, i) => ({
+            text,
+            style: `スレッド投稿${i + 1}`,
+          }))
+        : [];
+
+      return NextResponse.json({
+        data: {
+          posts,
+          thread_posts: Array.isArray(threadPosts) ? threadPosts : [],
+          model: model_account_id ? "model" : "default",
+        },
+      });
+    }
+
+    // 既存フロー: 3パターン単発投稿生成
     const systemPrompt = `あなたはSNS投稿のプロコピーライターです。Threadsで「バズる」投稿文を生成してください。
 
 ルール:

@@ -26,6 +26,7 @@ const publishDirectSchema = z.object({
   account_id: z.string().uuid(),
   hashtags: z.array(z.string()).optional(),
   draft_id: z.undefined().optional(),
+  thread_posts: z.array(z.string().min(1).max(500)).min(2).max(5).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -141,22 +142,71 @@ export async function POST(request: NextRequest) {
     // トークン復号化
     const accessToken = decrypt(account.access_token_enc);
 
-    // SNSアダプターで投稿
     const adapter = getAdapter(account.platform);
+    const threadPosts: string[] | undefined = body.thread_posts;
+
+    if (threadPosts && threadPosts.length >= 2) {
+      const results: Array<{ platform_post_id: string; post_url: string; published_at: string }> = [];
+      let replyToId: string | undefined;
+
+      for (const postText of threadPosts) {
+        const result = await adapter.createPost(accessToken, {
+          text: postText,
+          media_urls: results.length === 0 ? draftMediaUrls : [],
+          reply_to: replyToId,
+        });
+        results.push(result);
+        replyToId = result.platform_post_id;
+
+        if (results.length < threadPosts.length) {
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+      }
+
+      if (draftId) {
+        await supabase.from("drafts").update({ status: "published" }).eq("id", draftId);
+      }
+
+      for (let i = 0; i < results.length; i++) {
+        await adminClient.from("post_insights").upsert(
+          {
+            account_id: body.account_id,
+            platform_post_id: results[i].platform_post_id,
+            post_text: threadPosts[i],
+            post_url: results[i].post_url,
+            likes: 0,
+            replies: 0,
+            reposts: 0,
+            quotes: 0,
+            impressions: 0,
+            text_length: threadPosts[i].length,
+            hashtag_count: (threadPosts[i].match(/#/g) ?? []).length,
+            posted_at: results[i].published_at,
+            fetched_at: new Date().toISOString(),
+          },
+          { onConflict: "account_id,platform_post_id" }
+        );
+      }
+
+      return NextResponse.json({
+        data: {
+          thread_count: results.length,
+          first_post_id: results[0].platform_post_id,
+          post_url: results[0].post_url,
+          published_at: results[0].published_at,
+        },
+      });
+    }
+
     const result = await adapter.createPost(accessToken, {
       text: draftText,
       media_urls: draftMediaUrls,
     });
 
-    // 下書きステータスを「published」に更新
     if (draftId) {
-      await supabase
-        .from("drafts")
-        .update({ status: "published" })
-        .eq("id", draftId);
+      await supabase.from("drafts").update({ status: "published" }).eq("id", draftId);
     }
 
-    // post_insights に初期レコードを作成（投稿本文・URL付き）
     await adminClient.from("post_insights").upsert(
       {
         account_id: body.account_id,

@@ -220,6 +220,43 @@ export interface AnalysisResult {
   };
   summary: string;
   modeling_tips: string[];
+  thread_analysis?: {
+    avg_thread_length: number;
+    by_length: Array<{
+      length: number;
+      count: number;
+      avg_likes: number;
+      avg_views: number;
+    }>;
+    optimal_length: number;
+  };
+  hook_analysis?: {
+    patterns: Array<{
+      type: string;
+      count: number;
+      avg_likes: number;
+      avg_views: number;
+      examples: string[];
+    }>;
+    best_pattern: string;
+  };
+  char_correlation?: {
+    ranges: Array<{
+      range: string;
+      count: number;
+      avg_likes: number;
+    }>;
+    optimal_range: string;
+  };
+  top_posts?: Array<{
+    text: string;
+    likes: number;
+    views: number;
+    thread_length: number;
+    date: string;
+  }>;
+  data_source?: "api" | "scraping";
+  total_posts_analyzed?: number;
 }
 
 /** 自分のライティングプロファイル（social_accounts.writing_profile） */

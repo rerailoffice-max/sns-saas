@@ -90,7 +90,7 @@ export function AnalysisReport({
   lastAnalyzedAt,
 }: AnalysisReportProps) {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-
+  const [isDeepAnalyzing, setIsDeepAnalyzing] = useState(false);
   const [isFetching, setIsFetching] = useState(false);
 
   /** 投稿データを取得 */
@@ -129,6 +129,25 @@ export function AnalysisReport({
       console.error("分析リクエストエラー:", err);
     } finally {
       setIsAnalyzing(false);
+    }
+  };
+
+  /** 詳細分析（数百件収集）を実行 */
+  const handleDeepAnalyze = async () => {
+    setIsDeepAnalyzing(true);
+    try {
+      const res = await fetch(`/api/models/${modelId}/deep-analyze`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const json = await res.json();
+        console.error("詳細分析エラー:", json.error);
+      }
+      window.location.reload();
+    } catch (err) {
+      console.error("詳細分析リクエストエラー:", err);
+    } finally {
+      setIsDeepAnalyzing(false);
     }
   };
 
@@ -359,13 +378,27 @@ export function AnalysisReport({
                     投稿傾向・文体・ハッシュタグ戦略をAIが分析します
                   </CardDescription>
                 </div>
-                <Button
-                  onClick={handleAnalyze}
-                  disabled={isAnalyzing || posts.length === 0}
-                >
-                  <Sparkles className="mr-2 h-4 w-4" />
-                  {isAnalyzing ? "分析中..." : "AI分析を実行"}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={handleAnalyze}
+                    disabled={isAnalyzing || isDeepAnalyzing || posts.length === 0}
+                  >
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    {isAnalyzing ? "分析中..." : "AI分析を実行"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleDeepAnalyze}
+                    disabled={isAnalyzing || isDeepAnalyzing || posts.length === 0}
+                  >
+                    {isDeepAnalyzing ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Zap className="mr-2 h-4 w-4" />
+                    )}
+                    {isDeepAnalyzing ? "収集中..." : "詳細分析（数百件収集）"}
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -567,6 +600,206 @@ export function AnalysisReport({
                             </div>
                           ))}
                         </div>
+                      </div>
+                    )}
+
+                  {/* スレッド構成分析 */}
+                  {analysisResult.thread_analysis &&
+                    analysisResult.thread_analysis.by_length?.length > 0 && (
+                      <Card>
+                        <CardHeader>
+                          <div className="flex items-center justify-between">
+                            <CardTitle>スレッド構成分析</CardTitle>
+                            {analysisResult.thread_analysis.optimal_length != null && (
+                              <Badge variant="secondary">
+                                最適: {analysisResult.thread_analysis.optimal_length}件
+                              </Badge>
+                            )}
+                          </div>
+                        </CardHeader>
+                        <CardContent>
+                          <ResponsiveContainer width="100%" height={300}>
+                            <BarChart
+                              data={analysisResult.thread_analysis.by_length.map(
+                                (d) => ({
+                                  name: `${d.length}件`,
+                                  平均いいね: d.avg_likes,
+                                })
+                              )}
+                              margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                            >
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis dataKey="name" />
+                              <YAxis />
+                              <Tooltip />
+                              <Bar
+                                dataKey="平均いいね"
+                                fill="hsl(346, 77%, 49%)"
+                                radius={[4, 4, 0, 0]}
+                              />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                  {/* フックパターン分析 */}
+                  {analysisResult.hook_analysis &&
+                    analysisResult.hook_analysis.patterns?.length > 0 && (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>フックパターン分析</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <ResponsiveContainer width="100%" height={300}>
+                            <BarChart
+                              data={analysisResult.hook_analysis.patterns.map(
+                                (p) => ({
+                                  name: p.type,
+                                  平均いいね: p.avg_likes,
+                                  平均表示: p.avg_views,
+                                })
+                              )}
+                              margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                            >
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis dataKey="name" />
+                              <YAxis />
+                              <Tooltip />
+                              <Legend />
+                              <Bar
+                                dataKey="平均いいね"
+                                fill="hsl(346, 77%, 49%)"
+                                radius={[4, 4, 0, 0]}
+                              />
+                              <Bar
+                                dataKey="平均表示"
+                                fill="hsl(217, 91%, 59%)"
+                                radius={[4, 4, 0, 0]}
+                              />
+                            </BarChart>
+                          </ResponsiveContainer>
+                          {analysisResult.hook_analysis.best_pattern && (
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-2">
+                                最良パターン「{analysisResult.hook_analysis.best_pattern}」の例（上位2件）
+                              </p>
+                              <div className="space-y-2">
+                                {analysisResult.hook_analysis.patterns
+                                  .find(
+                                    (p) => p.type === analysisResult.hook_analysis?.best_pattern
+                                  )
+                                  ?.examples?.slice(0, 2)
+                                  ?.map((ex, i) => (
+                                    <div
+                                      key={i}
+                                      className="rounded-lg border p-3 text-sm"
+                                    >
+                                      {truncateText(ex, 120)}
+                                    </div>
+                                  ))}
+                              </div>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    )}
+
+                  {/* 文字数×いいね相関 */}
+                  {analysisResult.char_correlation &&
+                    analysisResult.char_correlation.ranges?.length > 0 && (
+                      <Card>
+                        <CardHeader>
+                          <div className="flex items-center justify-between">
+                            <CardTitle>文字数×いいね相関</CardTitle>
+                            {analysisResult.char_correlation.optimal_range && (
+                              <Badge variant="secondary">
+                                最適: {analysisResult.char_correlation.optimal_range}
+                              </Badge>
+                            )}
+                          </div>
+                        </CardHeader>
+                        <CardContent>
+                          <ResponsiveContainer width="100%" height={300}>
+                            <BarChart
+                              data={analysisResult.char_correlation.ranges.map(
+                                (r) => ({
+                                  name: r.range,
+                                  平均いいね: r.avg_likes,
+                                })
+                              )}
+                              margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                            >
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis dataKey="name" />
+                              <YAxis />
+                              <Tooltip />
+                              <Bar
+                                dataKey="平均いいね"
+                                fill="hsl(346, 77%, 49%)"
+                                radius={[4, 4, 0, 0]}
+                              />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                  {/* バズ投稿TOP10 */}
+                  {analysisResult.top_posts &&
+                    analysisResult.top_posts.length > 0 && (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>バズ投稿TOP10</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="w-[50px]">順位</TableHead>
+                                <TableHead className="w-[70px] text-right">いいね</TableHead>
+                                <TableHead className="w-[70px] text-right">表示</TableHead>
+                                <TableHead className="w-[80px]">スレッド長</TableHead>
+                                <TableHead className="w-[120px]">日付</TableHead>
+                                <TableHead>テキスト</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {analysisResult.top_posts.slice(0, 10).map((post, i) => (
+                                <TableRow key={i}>
+                                  <TableCell className="font-medium">{i + 1}</TableCell>
+                                  <TableCell className="text-right">
+                                    {formatNumber(post.likes)}
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    {formatNumber(post.views)}
+                                  </TableCell>
+                                  <TableCell>{post.thread_length}件</TableCell>
+                                  <TableCell className="text-xs">
+                                    {formatDate(post.date)}
+                                  </TableCell>
+                                  <TableCell className="max-w-[300px]">
+                                    <span className="text-sm">
+                                      {truncateText(post.text)}
+                                    </span>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                  {/* データソース表示 */}
+                  {analysisResult.data_source &&
+                    analysisResult.total_posts_analyzed != null && (
+                      <div>
+                        <Badge variant="outline">
+                          {analysisResult.data_source === "api"
+                            ? `API: ${formatNumber(analysisResult.total_posts_analyzed)}件分析`
+                            : `スクレイピング: ${formatNumber(analysisResult.total_posts_analyzed)}件分析`}
+                        </Badge>
                       </div>
                     )}
 
