@@ -5,6 +5,8 @@
  * 基本統計・カテゴリ別エンゲージメント（棒グラフ）・投稿一覧テーブルを表示
  */
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   Heart,
   MessageCircle,
@@ -16,6 +18,9 @@ import {
   Loader2,
   ArrowRight,
   Zap,
+  Calendar,
+  Eye,
+  BookOpen,
 } from "lucide-react";
 import {
   Card,
@@ -232,6 +237,12 @@ export function AnalysisReport({
               <Sparkles className="h-4 w-4 mr-1" />
               AI分析
             </TabsTrigger>
+            {analysisResult?.markdown_report && (
+              <TabsTrigger value="report">
+                <BookOpen className="h-4 w-4 mr-1" />
+                詳細レポート
+              </TabsTrigger>
+            )}
           </TabsList>
           <Button
             variant="outline"
@@ -745,44 +756,131 @@ export function AnalysisReport({
                       </Card>
                     )}
 
-                  {/* バズ投稿TOP10 */}
-                  {analysisResult.top_posts &&
-                    analysisResult.top_posts.length > 0 && (
+                  {/* バズ投稿TOP10 / 表示回数TOP10 */}
+                  {((analysisResult.top_posts && analysisResult.top_posts.length > 0) ||
+                    (analysisResult.views_top_posts && analysisResult.views_top_posts.length > 0)) && (
                       <Card>
                         <CardHeader>
-                          <CardTitle>バズ投稿TOP10</CardTitle>
+                          <CardTitle>バズ投稿ランキング</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <Tabs defaultValue="by-likes">
+                            <TabsList className="mb-4">
+                              <TabsTrigger value="by-likes">
+                                <Heart className="h-3.5 w-3.5 mr-1" />
+                                いいね順
+                              </TabsTrigger>
+                              {analysisResult.views_top_posts && analysisResult.views_top_posts.length > 0 && (
+                                <TabsTrigger value="by-views">
+                                  <Eye className="h-3.5 w-3.5 mr-1" />
+                                  表示回数順
+                                </TabsTrigger>
+                              )}
+                            </TabsList>
+                            <TabsContent value="by-likes">
+                              {analysisResult.top_posts && analysisResult.top_posts.length > 0 && (
+                                <TopPostsTable posts={analysisResult.top_posts} />
+                              )}
+                            </TabsContent>
+                            {analysisResult.views_top_posts && analysisResult.views_top_posts.length > 0 && (
+                              <TabsContent value="by-views">
+                                <TopPostsTable posts={analysisResult.views_top_posts} />
+                              </TabsContent>
+                            )}
+                          </Tabs>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                  {/* 月別パフォーマンス */}
+                  {analysisResult.monthly_performance &&
+                    analysisResult.monthly_performance.length > 0 && (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <Calendar className="h-5 w-5" />
+                            月別パフォーマンス
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <ResponsiveContainer width="100%" height={300}>
+                            <BarChart
+                              data={analysisResult.monthly_performance.map((m) => ({
+                                name: m.month,
+                                投稿数: m.count,
+                                平均いいね: m.avg_likes,
+                                ...(m.avg_views > 0 ? { 平均表示: m.avg_views } : {}),
+                              }))}
+                              margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                            >
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis dataKey="name" />
+                              <YAxis />
+                              <Tooltip />
+                              <Legend />
+                              <Bar dataKey="投稿数" fill="hsl(217, 91%, 59%)" radius={[4, 4, 0, 0]} />
+                              <Bar dataKey="平均いいね" fill="hsl(346, 77%, 49%)" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                  {/* 曜日別エンゲージメント */}
+                  {analysisResult.weekly_performance &&
+                    analysisResult.weekly_performance.length > 0 && (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>曜日別エンゲージメント</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <ResponsiveContainer width="100%" height={300}>
+                            <BarChart
+                              data={analysisResult.weekly_performance.map((w) => ({
+                                name: w.day,
+                                投稿数: w.count,
+                                平均いいね: w.avg_likes,
+                                ...(w.avg_views > 0 ? { 平均表示: w.avg_views } : {}),
+                              }))}
+                              margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                            >
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis dataKey="name" />
+                              <YAxis />
+                              <Tooltip />
+                              <Legend />
+                              <Bar dataKey="投稿数" fill="hsl(217, 91%, 59%)" radius={[4, 4, 0, 0]} />
+                              <Bar dataKey="平均いいね" fill="hsl(346, 77%, 49%)" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                  {/* テーマ別投稿分析 */}
+                  {analysisResult.theme_analysis &&
+                    analysisResult.theme_analysis.length > 0 && (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>テーマ別投稿分析</CardTitle>
                         </CardHeader>
                         <CardContent>
                           <Table>
                             <TableHeader>
                               <TableRow>
-                                <TableHead className="w-[50px]">順位</TableHead>
-                                <TableHead className="w-[70px] text-right">いいね</TableHead>
-                                <TableHead className="w-[70px] text-right">表示</TableHead>
-                                <TableHead className="w-[80px]">スレッド長</TableHead>
-                                <TableHead className="w-[120px]">日付</TableHead>
-                                <TableHead>テキスト</TableHead>
+                                <TableHead>テーマ</TableHead>
+                                <TableHead className="w-[100px] text-right">スレッド数</TableHead>
+                                <TableHead className="w-[100px] text-right">平均いいね</TableHead>
+                                <TableHead className="w-[100px] text-right">最大いいね</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {analysisResult.top_posts.slice(0, 10).map((post, i) => (
+                              {analysisResult.theme_analysis.map((theme, i) => (
                                 <TableRow key={i}>
-                                  <TableCell className="font-medium">{i + 1}</TableCell>
-                                  <TableCell className="text-right">
-                                    {formatNumber(post.likes)}
-                                  </TableCell>
-                                  <TableCell className="text-right">
-                                    {formatNumber(post.views)}
-                                  </TableCell>
-                                  <TableCell>{post.thread_length}件</TableCell>
-                                  <TableCell className="text-xs">
-                                    {formatDate(post.date)}
-                                  </TableCell>
-                                  <TableCell className="max-w-[300px]">
-                                    <span className="text-sm">
-                                      {truncateText(post.text)}
-                                    </span>
-                                  </TableCell>
+                                  <TableCell className="font-medium">{theme.theme}</TableCell>
+                                  <TableCell className="text-right">{theme.thread_count}</TableCell>
+                                  <TableCell className="text-right">{formatNumber(theme.avg_likes)}</TableCell>
+                                  <TableCell className="text-right">{formatNumber(theme.max_likes)}</TableCell>
                                 </TableRow>
                               ))}
                             </TableBody>
@@ -790,6 +888,51 @@ export function AnalysisReport({
                         </CardContent>
                       </Card>
                     )}
+
+                  {/* エンゲージメント分布 */}
+                  {analysisResult.engagement_distribution && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>エンゲージメント分布（パーセンタイル）</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <div>
+                            <h4 className="text-sm font-semibold mb-3 flex items-center gap-1">
+                              <Heart className="h-4 w-4" /> いいね分布
+                            </h4>
+                            <div className="grid grid-cols-5 gap-2">
+                              {(["p25", "p50", "p75", "p90", "max"] as const).map((key) => (
+                                <div key={key} className="rounded-lg border p-2 text-center">
+                                  <p className="text-xs text-muted-foreground">{key === "max" ? "最大" : key.toUpperCase()}</p>
+                                  <p className="text-sm font-bold">
+                                    {formatNumber(analysisResult.engagement_distribution!.likes[key])}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          {analysisResult.engagement_distribution.views.max > 0 && (
+                            <div>
+                              <h4 className="text-sm font-semibold mb-3 flex items-center gap-1">
+                                <Eye className="h-4 w-4" /> 表示回数分布
+                              </h4>
+                              <div className="grid grid-cols-5 gap-2">
+                                {(["p25", "p50", "p75", "p90", "max"] as const).map((key) => (
+                                  <div key={key} className="rounded-lg border p-2 text-center">
+                                    <p className="text-xs text-muted-foreground">{key === "max" ? "最大" : key.toUpperCase()}</p>
+                                    <p className="text-sm font-bold">
+                                      {formatNumber(analysisResult.engagement_distribution!.views[key])}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
 
                   {/* データソース表示 */}
                   {analysisResult.data_source &&
@@ -826,7 +969,71 @@ export function AnalysisReport({
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* 詳細レポート（Markdown）タブ */}
+        {analysisResult?.markdown_report && (
+          <TabsContent value="report">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <BookOpen className="h-5 w-5" />
+                      詳細分析レポート
+                    </CardTitle>
+                    <CardDescription>
+                      スクレイピングデータに基づく包括的な分析レポート
+                    </CardDescription>
+                  </div>
+                  {analysisResult.data_source && (
+                    <Badge variant="outline">
+                      {analysisResult.data_source === "scraping" ? "スクレイピング分析" : "API分析"}
+                    </Badge>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="prose prose-sm dark:prose-invert max-w-none prose-headings:mt-6 prose-headings:mb-3 prose-table:text-sm prose-th:px-3 prose-th:py-2 prose-td:px-3 prose-td:py-2 prose-table:border-collapse prose-th:border prose-td:border prose-th:border-border prose-td:border-border prose-th:bg-muted/50">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {analysisResult.markdown_report}
+                  </ReactMarkdown>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
       </Tabs>
     </div>
+  );
+}
+
+function TopPostsTable({ posts }: { posts: Array<{ text: string; likes: number; views: number; thread_length: number; date: string }> }) {
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead className="w-[50px]">順位</TableHead>
+          <TableHead className="w-[70px] text-right">いいね</TableHead>
+          <TableHead className="w-[70px] text-right">表示</TableHead>
+          <TableHead className="w-[80px]">スレッド長</TableHead>
+          <TableHead className="w-[120px]">日付</TableHead>
+          <TableHead>テキスト</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {posts.slice(0, 10).map((post, i) => (
+          <TableRow key={i}>
+            <TableCell className="font-medium">{i + 1}</TableCell>
+            <TableCell className="text-right">{formatNumber(post.likes)}</TableCell>
+            <TableCell className="text-right">{formatNumber(post.views)}</TableCell>
+            <TableCell>{post.thread_length}件</TableCell>
+            <TableCell className="text-xs">{formatDate(post.date)}</TableCell>
+            <TableCell className="max-w-[300px]">
+              <span className="text-sm">{truncateText(post.text)}</span>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }

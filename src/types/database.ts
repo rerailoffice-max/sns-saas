@@ -255,6 +255,36 @@ export interface AnalysisResult {
     thread_length: number;
     date: string;
   }>;
+  monthly_performance?: Array<{
+    month: string;
+    count: number;
+    avg_likes: number;
+    avg_views: number;
+  }>;
+  weekly_performance?: Array<{
+    day: string;
+    count: number;
+    avg_likes: number;
+    avg_views: number;
+  }>;
+  theme_analysis?: Array<{
+    theme: string;
+    thread_count: number;
+    avg_likes: number;
+    max_likes: number;
+  }>;
+  engagement_distribution?: {
+    likes: { p25: number; p50: number; p75: number; p90: number; max: number };
+    views: { p25: number; p50: number; p75: number; p90: number; max: number };
+  };
+  views_top_posts?: Array<{
+    text: string;
+    likes: number;
+    views: number;
+    thread_length: number;
+    date: string;
+  }>;
+  markdown_report?: string;
   data_source?: "api" | "scraping";
   total_posts_analyzed?: number;
 }

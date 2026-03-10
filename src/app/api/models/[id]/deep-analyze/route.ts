@@ -270,12 +270,23 @@ export async function POST(
     "thread_analysis" | "hook_analysis" | "char_correlation" | "top_posts" | "data_source" | "total_posts_analyzed"
   >;
 
+  const monthlyPerformance = Object.entries(monthly)
+    .map(([month, v]) => ({ month, count: v.count, avg_likes: v.avg_likes, avg_views: 0 }))
+    .sort((a, b) => a.month.localeCompare(b.month));
+
+  const DAY_ORDER = ["月", "火", "水", "木", "金", "土", "日"];
+  const weeklyPerformance = Object.entries(weekly)
+    .map(([day, v]) => ({ day, count: v.count, avg_likes: v.avg_likes, avg_views: 0 }))
+    .sort((a, b) => DAY_ORDER.indexOf(a.day) - DAY_ORDER.indexOf(b.day));
+
   const analysisResult: AnalysisResult = {
     ...baseResult,
     thread_analysis: threadAnalysis,
     hook_analysis: hookAnalysis,
     char_correlation: charCorrelation,
     top_posts: topPosts,
+    monthly_performance: monthlyPerformance,
+    weekly_performance: weeklyPerformance,
     data_source: dataSource,
     total_posts_analyzed: posts.length,
   };
