@@ -45,7 +45,7 @@ yarn-error.log*
 next-env.d.ts
 
 # project-specific
-drafts/
+/drafts/
 consolidated-results.json
 step1-posts.json
 cron-report.txt
