@@ -5,8 +5,7 @@
  * 基本統計・カテゴリ別エンゲージメント（棒グラフ）・投稿一覧テーブルを表示
  */
 import { useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import dynamic from "next/dynamic";
 import {
   Heart,
   MessageCircle,
@@ -52,6 +51,11 @@ import {
 } from "recharts";
 import type { ModelPost, AnalysisResult } from "@/types/database";
 import type { CategoryStats, StatsSummary } from "@/app/(app)/models/[id]/page";
+
+const MarkdownRenderer = dynamic(
+  () => import("@/components/models/markdown-renderer"),
+  { ssr: false, loading: () => <div className="animate-pulse h-64 bg-muted rounded" /> }
+);
 
 interface AnalysisReportProps {
   modelId: string;
@@ -993,11 +997,7 @@ export function AnalysisReport({
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="prose prose-sm dark:prose-invert max-w-none prose-headings:mt-6 prose-headings:mb-3 prose-table:text-sm prose-th:px-3 prose-th:py-2 prose-td:px-3 prose-td:py-2 prose-table:border-collapse prose-th:border prose-td:border prose-th:border-border prose-td:border-border prose-th:bg-muted/50">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {analysisResult.markdown_report}
-                  </ReactMarkdown>
-                </div>
+                <MarkdownRenderer content={analysisResult.markdown_report} />
               </CardContent>
             </Card>
           </TabsContent>
