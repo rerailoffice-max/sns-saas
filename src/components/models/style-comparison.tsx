@@ -135,109 +135,117 @@ export function StyleComparison({
             </div>
 
             {/* 文体比較 */}
-            <div>
-              <h4 className="text-sm font-semibold mb-2">✍️ 文体</h4>
-              <div className="rounded-lg border p-3">
-                <ComparisonRow
-                  label="トーン"
-                  selfValue={selfProfile.writing_style.tone}
-                  modelValue={modelAnalysis.writing_style.tone}
-                />
-                <ComparisonRow
-                  label="平均文字数"
-                  selfValue={`${selfProfile.writing_style.avg_length}文字`}
-                  modelValue={`${modelAnalysis.writing_style.avg_length}文字`}
-                />
-                <ComparisonRow
-                  label="絵文字"
-                  selfValue={selfProfile.writing_style.emoji_usage}
-                  modelValue={modelAnalysis.writing_style.emoji_usage}
-                />
+            {modelAnalysis.writing_style && (
+              <div>
+                <h4 className="text-sm font-semibold mb-2">✍️ 文体</h4>
+                <div className="rounded-lg border p-3">
+                  <ComparisonRow
+                    label="トーン"
+                    selfValue={selfProfile.writing_style.tone}
+                    modelValue={modelAnalysis.writing_style.tone}
+                  />
+                  <ComparisonRow
+                    label="平均文字数"
+                    selfValue={`${selfProfile.writing_style.avg_length}文字`}
+                    modelValue={`${modelAnalysis.writing_style.avg_length}文字`}
+                  />
+                  <ComparisonRow
+                    label="絵文字"
+                    selfValue={selfProfile.writing_style.emoji_usage}
+                    modelValue={modelAnalysis.writing_style.emoji_usage}
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
             {/* フックパターン比較 */}
-            <div>
-              <h4 className="text-sm font-semibold mb-2">🎣 フックパターン</h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="rounded-lg border p-3">
-                  <p className="text-xs text-muted-foreground mb-2">あなた</p>
-                  <div className="flex flex-wrap gap-1">
-                    {selfProfile.writing_style.hook_patterns.length > 0 ? (
-                      selfProfile.writing_style.hook_patterns.map((p, i) => (
-                        <Badge key={i} variant="outline" className="text-xs">
-                          {p}
-                        </Badge>
-                      ))
-                    ) : (
-                      <span className="text-xs text-muted-foreground">
-                        データなし
-                      </span>
-                    )}
+            {modelAnalysis.writing_style && (
+              <div>
+                <h4 className="text-sm font-semibold mb-2">🎣 フックパターン</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs text-muted-foreground mb-2">あなた</p>
+                    <div className="flex flex-wrap gap-1">
+                      {selfProfile.writing_style.hook_patterns.length > 0 ? (
+                        selfProfile.writing_style.hook_patterns.map((p, i) => (
+                          <Badge key={i} variant="outline" className="text-xs">
+                            {p}
+                          </Badge>
+                        ))
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          データなし
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <div className="rounded-lg border p-3">
-                  <p className="text-xs text-muted-foreground mb-2">
-                    @{modelUsername}
-                  </p>
-                  <div className="flex flex-wrap gap-1">
-                    {modelAnalysis.writing_style.hook_patterns.length > 0 ? (
-                      modelAnalysis.writing_style.hook_patterns.map((p, i) => (
-                        <Badge key={i} variant="outline" className="text-xs">
-                          {p}
-                        </Badge>
-                      ))
-                    ) : (
-                      <span className="text-xs text-muted-foreground">
-                        データなし
-                      </span>
-                    )}
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs text-muted-foreground mb-2">
+                      @{modelUsername}
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {(modelAnalysis.writing_style.hook_patterns?.length ?? 0) > 0 ? (
+                        modelAnalysis.writing_style.hook_patterns!.map((p, i) => (
+                          <Badge key={i} variant="outline" className="text-xs">
+                            {p}
+                          </Badge>
+                        ))
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          データなし
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* ハッシュタグ比較 */}
-            <div>
-              <h4 className="text-sm font-semibold mb-2">
-                # ハッシュタグ戦略
-              </h4>
-              <div className="rounded-lg border p-3">
-                <ComparisonRow
-                  label="平均使用数"
-                  selfValue={`${selfProfile.hashtag_strategy.avg_count}個/投稿`}
-                  modelValue={`${modelAnalysis.hashtag_strategy.avg_count}個/投稿`}
-                />
-                <ComparisonRow
-                  label="使い方"
-                  selfValue={selfProfile.hashtag_strategy.usage_pattern}
-                  modelValue={modelAnalysis.hashtag_strategy.usage_pattern}
-                />
+            {modelAnalysis.hashtag_strategy && (
+              <div>
+                <h4 className="text-sm font-semibold mb-2">
+                  # ハッシュタグ戦略
+                </h4>
+                <div className="rounded-lg border p-3">
+                  <ComparisonRow
+                    label="平均使用数"
+                    selfValue={`${selfProfile.hashtag_strategy.avg_count}個/投稿`}
+                    modelValue={`${modelAnalysis.hashtag_strategy.avg_count}個/投稿`}
+                  />
+                  <ComparisonRow
+                    label="使い方"
+                    selfValue={selfProfile.hashtag_strategy.usage_pattern}
+                    modelValue={modelAnalysis.hashtag_strategy.usage_pattern}
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
             {/* 投稿頻度比較 */}
-            <div>
-              <h4 className="text-sm font-semibold mb-2">📅 投稿頻度</h4>
-              <div className="rounded-lg border p-3">
-                <ComparisonRow
-                  label="週あたり"
-                  selfValue={`${selfProfile.posting_frequency.avg_per_week}回`}
-                  modelValue={`${modelAnalysis.posting_frequency.avg_per_week}回`}
-                />
-                <ComparisonRow
-                  label="ピーク曜日"
-                  selfValue={
-                    selfProfile.posting_frequency.peak_days.join(", ") ||
-                    "データなし"
-                  }
-                  modelValue={
-                    modelAnalysis.posting_frequency.peak_days.join(", ") ||
-                    "データなし"
-                  }
-                />
+            {modelAnalysis.posting_frequency && (
+              <div>
+                <h4 className="text-sm font-semibold mb-2">📅 投稿頻度</h4>
+                <div className="rounded-lg border p-3">
+                  <ComparisonRow
+                    label="週あたり"
+                    selfValue={`${selfProfile.posting_frequency.avg_per_week}回`}
+                    modelValue={`${modelAnalysis.posting_frequency.avg_per_week}回`}
+                  />
+                  <ComparisonRow
+                    label="ピーク曜日"
+                    selfValue={
+                      selfProfile.posting_frequency.peak_days.join(", ") ||
+                      "データなし"
+                    }
+                    modelValue={
+                      modelAnalysis.posting_frequency.peak_days?.join(", ") ||
+                      "データなし"
+                    }
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
             {/* モデリングのコツ */}
             {modelAnalysis.modeling_tips &&

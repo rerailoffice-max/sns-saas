@@ -175,19 +175,22 @@ export function buildThreadSystemPrompt(
     const ws = modelAnalysis.writing_style;
     const ep = modelAnalysis.engagement_patterns;
     const tips = modelAnalysis.modeling_tips ?? [];
-    modelSection = `
-
-## モデルアカウントの文体・エンゲージメントに合わせる
-- 文体トーン: ${ws.tone}
-- 平均文字数: ${ws.avg_length}字
-- 絵文字: ${ws.emoji_usage}
-- フックパターン: ${ws.hook_patterns?.join("、") ?? "指定なし"}
-- いいね平均: ${ep.avg_likes}
-- 最良フォーマット: ${ep.best_performing_format}
-- 最適長: ${ep.optimal_length ?? "未指定"}
-- モデリングのコツ: ${tips.join(" / ")}
-- サマリー: ${modelAnalysis.summary}
-`;
+    const parts: string[] = [];
+    parts.push("\n## モデルアカウントの文体・エンゲージメントに合わせる");
+    if (ws) {
+      parts.push(`- 文体トーン: ${ws.tone}`);
+      parts.push(`- 平均文字数: ${ws.avg_length}字`);
+      parts.push(`- 絵文字: ${ws.emoji_usage}`);
+      parts.push(`- フックパターン: ${ws.hook_patterns?.join("、") ?? "指定なし"}`);
+    }
+    if (ep) {
+      parts.push(`- いいね平均: ${ep.avg_likes}`);
+      parts.push(`- 最良フォーマット: ${ep.best_performing_format}`);
+      parts.push(`- 最適長: ${ep.optimal_length ?? "未指定"}`);
+    }
+    if (tips.length > 0) parts.push(`- モデリングのコツ: ${tips.join(" / ")}`);
+    if (modelAnalysis.summary) parts.push(`- サマリー: ${modelAnalysis.summary}`);
+    modelSection = parts.join("\n") + "\n";
   }
 
   let hookInstruction = "";
