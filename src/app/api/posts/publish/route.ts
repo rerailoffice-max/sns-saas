@@ -187,7 +187,7 @@ export async function POST(request: NextRequest) {
         replyToId = result.platform_post_id;
 
         if (results.length < threadPosts.length) {
-          await new Promise((r) => setTimeout(r, 2000));
+          await new Promise((r) => setTimeout(r, 5000));
         }
       }
 
@@ -263,8 +263,9 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     console.error("投稿エラー:", err);
+    const message = err instanceof Error ? err.message : "不明なエラー";
     return NextResponse.json(
-      { error: "投稿に失敗しました" },
+      { error: `投稿に失敗しました: ${message}` },
       { status: 500 }
     );
   }
