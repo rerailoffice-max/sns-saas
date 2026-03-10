@@ -187,7 +187,7 @@ export async function POST(request: NextRequest) {
         replyToId = result.platform_post_id;
 
         if (results.length < threadPosts.length) {
-          await new Promise((r) => setTimeout(r, 5000));
+          await new Promise((r) => setTimeout(r, 3000));
         }
       }
 

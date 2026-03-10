@@ -180,7 +180,31 @@ export class ThreadsAdapter implements SNSAdapter {
 
     const containerData = await containerRes.json();
 
-    // Step 2: コンテナを公開
+    // Step 2: コンテナがFINISHEDになるまでポーリング
+    const containerId = containerData.id;
+    const maxAttempts = 15;
+    const pollInterval = 2000;
+
+    for (let i = 0; i < maxAttempts; i++) {
+      const statusRes = await fetch(
+        `${THREADS_API_BASE}/${containerId}?fields=status&access_token=${accessToken}`
+      );
+      if (statusRes.ok) {
+        const statusData = await statusRes.json();
+        if (statusData.status === "FINISHED") break;
+        if (statusData.status === "ERROR") {
+          throw new Error(
+            `コンテナ処理エラー: ${statusData.error_message ?? "不明"}`
+          );
+        }
+      }
+      if (i === maxAttempts - 1) {
+        throw new Error("コンテナの準備がタイムアウトしました（30秒）");
+      }
+      await new Promise((r) => setTimeout(r, pollInterval));
+    }
+
+    // Step 3: コンテナを公開
     const publishRes = await fetch(
       `${THREADS_API_BASE}/me/threads_publish`,
       {
