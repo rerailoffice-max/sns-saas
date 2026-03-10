@@ -65,16 +65,28 @@ export function BatchGenerateDialog({ accountId }: BatchGenerateDialogProps) {
     setSuggestError(null);
     try {
       const res = await fetch("/api/ai/suggest-themes", { method: "POST" });
+      // #region agent log
+      fetch('http://127.0.0.1:7744/ingest/110127fe-ae5b-4a90-a338-ca8c289a899e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'e11e43'},body:JSON.stringify({sessionId:'e11e43',location:'batch-generate-dialog.tsx:suggest-response',message:'suggest-themes response',data:{status:res.status,statusText:res.statusText,ok:res.ok},timestamp:Date.now(),hypothesisId:'ALL'})}).catch(()=>{});
+      // #endregion
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        // #region agent log
+        fetch('http://127.0.0.1:7744/ingest/110127fe-ae5b-4a90-a338-ca8c289a899e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'e11e43'},body:JSON.stringify({sessionId:'e11e43',location:'batch-generate-dialog.tsx:suggest-error-body',message:'suggest-themes error body',data:{status:res.status,body:data},timestamp:Date.now(),hypothesisId:'ALL'})}).catch(()=>{});
+        // #endregion
         throw new Error(data.error ?? "テーマ提案に失敗しました");
       }
       const data = await res.json();
+      // #region agent log
+      fetch('http://127.0.0.1:7744/ingest/110127fe-ae5b-4a90-a338-ca8c289a899e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'e11e43'},body:JSON.stringify({sessionId:'e11e43',location:'batch-generate-dialog.tsx:suggest-success',message:'suggest-themes success',data:{themeCount:data.data?.themes?.length,postCount:data.data?.post_count,modelCount:data.data?.model_count},timestamp:Date.now(),hypothesisId:'ALL'})}).catch(()=>{});
+      // #endregion
       const themes: SuggestedTheme[] = data.data?.themes ?? [];
       setSuggestions(themes);
       setSelectedThemes(new Set(themes.map((t) => t.theme)));
     } catch (err) {
       const msg = err instanceof Error ? err.message : "テーマ提案に失敗しました";
+      // #region agent log
+      fetch('http://127.0.0.1:7744/ingest/110127fe-ae5b-4a90-a338-ca8c289a899e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'e11e43'},body:JSON.stringify({sessionId:'e11e43',location:'batch-generate-dialog.tsx:suggest-catch',message:'suggest-themes caught error',data:{errorMessage:msg,errorType:err?.constructor?.name},timestamp:Date.now(),hypothesisId:'ALL'})}).catch(()=>{});
+      // #endregion
       setSuggestError(msg);
       toast.error(msg);
     } finally {

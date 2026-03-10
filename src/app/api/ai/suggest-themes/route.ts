@@ -127,8 +127,9 @@ export async function POST() {
     });
   } catch (err) {
     console.error("テーマ提案エラー:", err);
+    const detail = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
-      { error: "テーマ提案に失敗しました" },
+      { error: "テーマ提案に失敗しました", debug_detail: detail },
       { status: 500 }
     );
   }
