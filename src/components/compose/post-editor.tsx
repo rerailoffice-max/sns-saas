@@ -118,6 +118,22 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
     setIsDragging(false);
   }, []);
 
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const files: File[] = [];
+    for (const item of Array.from(items)) {
+      if (item.kind === "file" && item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) files.push(file);
+      }
+    }
+    if (files.length > 0) {
+      e.preventDefault();
+      uploadFiles(files);
+    }
+  }, [uploadFiles]);
+
   const charCount = text.length;
   const isOverLimit = charCount > MAX_CHARS;
   const threadCanSubmit =
@@ -276,7 +292,7 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
+    <div className="grid gap-6 lg:grid-cols-2" onPaste={handlePaste}>
       {/* エディタ */}
       <div className="space-y-4">
         <Card>
