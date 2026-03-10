@@ -189,27 +189,27 @@ export interface ModelPost {
 // ============================================================
 
 export interface AnalysisResult {
-  writing_style: {
+  writing_style?: {
     tone: string;
     avg_length: number;
     emoji_usage: string;
     hook_patterns: string[];
   };
-  content_themes: Array<{
+  content_themes?: Array<{
     theme: string;
     frequency: number;
   }>;
-  hashtag_strategy: {
+  hashtag_strategy?: {
     avg_count: number;
     top_hashtags: string[];
     usage_pattern: string;
   };
-  posting_frequency: {
+  posting_frequency?: {
     avg_per_week: number;
     peak_days: string[];
     peak_hours: number[];
   };
-  engagement_patterns: {
+  engagement_patterns?: {
     avg_likes: number;
     avg_replies: number;
     avg_reposts: number;
@@ -218,8 +218,8 @@ export interface AnalysisResult {
     common_traits?: string[];
     optimal_length?: number;
   };
-  summary: string;
-  modeling_tips: string[];
+  summary?: string;
+  modeling_tips?: string[];
   thread_analysis?: {
     avg_thread_length: number;
     by_length: Array<{

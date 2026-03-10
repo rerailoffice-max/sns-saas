@@ -442,142 +442,150 @@ export function AnalysisReport({
               {analysisResult ? (
                 <div className="space-y-6">
                   {/* サマリー */}
-                  <div>
-                    <h4 className="font-semibold mb-2">分析サマリー</h4>
-                    <p className="text-sm text-muted-foreground">
-                      {analysisResult.summary}
-                    </p>
-                  </div>
+                  {analysisResult.summary && (
+                    <div>
+                      <h4 className="font-semibold mb-2">分析サマリー</h4>
+                      <p className="text-sm text-muted-foreground">
+                        {analysisResult.summary}
+                      </p>
+                    </div>
+                  )}
 
                   {/* 文体分析 */}
-                  <div>
-                    <h4 className="font-semibold mb-2">文体分析</h4>
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      <div className="rounded-lg border p-3">
-                        <p className="text-xs text-muted-foreground">トーン</p>
-                        <p className="text-sm font-medium">
-                          {analysisResult.writing_style.tone}
-                        </p>
-                      </div>
-                      <div className="rounded-lg border p-3">
-                        <p className="text-xs text-muted-foreground">
-                          平均文字数
-                        </p>
-                        <p className="text-sm font-medium">
-                          {analysisResult.writing_style.avg_length}文字
-                        </p>
-                      </div>
-                      <div className="rounded-lg border p-3">
-                        <p className="text-xs text-muted-foreground">
-                          絵文字使用
-                        </p>
-                        <p className="text-sm font-medium">
-                          {analysisResult.writing_style.emoji_usage}
-                        </p>
-                      </div>
-                      <div className="rounded-lg border p-3">
-                        <p className="text-xs text-muted-foreground">
-                          フックパターン
-                        </p>
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {analysisResult.writing_style.hook_patterns.length >
-                          0 ? (
-                            analysisResult.writing_style.hook_patterns.map(
-                              (pattern, i) => (
-                                <Badge
-                                  key={i}
-                                  variant="outline"
-                                  className="text-xs"
-                                >
-                                  {pattern}
-                                </Badge>
+                  {analysisResult.writing_style && (
+                    <div>
+                      <h4 className="font-semibold mb-2">文体分析</h4>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="rounded-lg border p-3">
+                          <p className="text-xs text-muted-foreground">トーン</p>
+                          <p className="text-sm font-medium">
+                            {analysisResult.writing_style.tone}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border p-3">
+                          <p className="text-xs text-muted-foreground">
+                            平均文字数
+                          </p>
+                          <p className="text-sm font-medium">
+                            {analysisResult.writing_style.avg_length}文字
+                          </p>
+                        </div>
+                        <div className="rounded-lg border p-3">
+                          <p className="text-xs text-muted-foreground">
+                            絵文字使用
+                          </p>
+                          <p className="text-sm font-medium">
+                            {analysisResult.writing_style.emoji_usage}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border p-3">
+                          <p className="text-xs text-muted-foreground">
+                            フックパターン
+                          </p>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {analysisResult.writing_style.hook_patterns?.length >
+                            0 ? (
+                              analysisResult.writing_style.hook_patterns.map(
+                                (pattern, i) => (
+                                  <Badge
+                                    key={i}
+                                    variant="outline"
+                                    className="text-xs"
+                                  >
+                                    {pattern}
+                                  </Badge>
+                                )
                               )
-                            )
-                          ) : (
-                            <span className="text-xs text-muted-foreground">
-                              データなし
-                            </span>
-                          )}
+                            ) : (
+                              <span className="text-xs text-muted-foreground">
+                                データなし
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* ハッシュタグ戦略 */}
-                  <div>
-                    <h4 className="font-semibold mb-2">ハッシュタグ戦略</h4>
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      <div className="rounded-lg border p-3">
-                        <p className="text-xs text-muted-foreground">
-                          平均使用数
-                        </p>
-                        <p className="text-sm font-medium">
-                          {analysisResult.hashtag_strategy.avg_count}個/投稿
-                        </p>
-                      </div>
-                      <div className="rounded-lg border p-3">
-                        <p className="text-xs text-muted-foreground">
-                          使用パターン
-                        </p>
-                        <p className="text-sm font-medium">
-                          {analysisResult.hashtag_strategy.usage_pattern}
-                        </p>
-                      </div>
-                    </div>
-                    {analysisResult.hashtag_strategy.top_hashtags.length > 0 && (
-                      <div className="mt-2">
-                        <p className="text-xs text-muted-foreground mb-1">
-                          よく使われるハッシュタグ
-                        </p>
-                        <div className="flex flex-wrap gap-1">
-                          {analysisResult.hashtag_strategy.top_hashtags.map(
-                            (tag, i) => (
-                              <Badge key={i} variant="secondary">
-                                #{tag}
-                              </Badge>
-                            )
-                          )}
+                  {analysisResult.hashtag_strategy && (
+                    <div>
+                      <h4 className="font-semibold mb-2">ハッシュタグ戦略</h4>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="rounded-lg border p-3">
+                          <p className="text-xs text-muted-foreground">
+                            平均使用数
+                          </p>
+                          <p className="text-sm font-medium">
+                            {analysisResult.hashtag_strategy.avg_count}個/投稿
+                          </p>
+                        </div>
+                        <div className="rounded-lg border p-3">
+                          <p className="text-xs text-muted-foreground">
+                            使用パターン
+                          </p>
+                          <p className="text-sm font-medium">
+                            {analysisResult.hashtag_strategy.usage_pattern}
+                          </p>
                         </div>
                       </div>
-                    )}
-                  </div>
+                      {analysisResult.hashtag_strategy.top_hashtags?.length > 0 && (
+                        <div className="mt-2">
+                          <p className="text-xs text-muted-foreground mb-1">
+                            よく使われるハッシュタグ
+                          </p>
+                          <div className="flex flex-wrap gap-1">
+                            {analysisResult.hashtag_strategy.top_hashtags.map(
+                              (tag, i) => (
+                                <Badge key={i} variant="secondary">
+                                  #{tag}
+                                </Badge>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* 投稿頻度 */}
-                  <div>
-                    <h4 className="font-semibold mb-2">投稿頻度</h4>
-                    <div className="grid gap-2 sm:grid-cols-3">
-                      <div className="rounded-lg border p-3">
-                        <p className="text-xs text-muted-foreground">
-                          週あたり投稿数
-                        </p>
-                        <p className="text-sm font-medium">
-                          {analysisResult.posting_frequency.avg_per_week}回
-                        </p>
-                      </div>
-                      <div className="rounded-lg border p-3">
-                        <p className="text-xs text-muted-foreground">
-                          投稿が多い曜日
-                        </p>
-                        <p className="text-sm font-medium">
-                          {analysisResult.posting_frequency.peak_days.join(
-                            ", "
-                          ) || "データなし"}
-                        </p>
-                      </div>
-                      <div className="rounded-lg border p-3">
-                        <p className="text-xs text-muted-foreground">
-                          投稿が多い時間帯
-                        </p>
-                        <p className="text-sm font-medium">
-                          {analysisResult.posting_frequency.peak_hours.length > 0
-                            ? analysisResult.posting_frequency.peak_hours
-                                .map((h) => `${h}時`)
-                                .join(", ")
-                            : "データなし"}
-                        </p>
+                  {analysisResult.posting_frequency && (
+                    <div>
+                      <h4 className="font-semibold mb-2">投稿頻度</h4>
+                      <div className="grid gap-2 sm:grid-cols-3">
+                        <div className="rounded-lg border p-3">
+                          <p className="text-xs text-muted-foreground">
+                            週あたり投稿数
+                          </p>
+                          <p className="text-sm font-medium">
+                            {analysisResult.posting_frequency.avg_per_week}回
+                          </p>
+                        </div>
+                        <div className="rounded-lg border p-3">
+                          <p className="text-xs text-muted-foreground">
+                            投稿が多い曜日
+                          </p>
+                          <p className="text-sm font-medium">
+                            {analysisResult.posting_frequency.peak_days?.join(
+                              ", "
+                            ) || "データなし"}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border p-3">
+                          <p className="text-xs text-muted-foreground">
+                            投稿が多い時間帯
+                          </p>
+                          <p className="text-sm font-medium">
+                            {analysisResult.posting_frequency.peak_hours?.length > 0
+                              ? analysisResult.posting_frequency.peak_hours
+                                  .map((h) => `${h}時`)
+                                  .join(", ")
+                              : "データなし"}
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* エンゲージメントパターン */}
                   {analysisResult.engagement_patterns && (
