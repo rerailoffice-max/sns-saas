@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/card";
 import { AnalysisReport } from "@/components/models/analysis-report";
 import { StyleComparison } from "@/components/models/style-comparison";
+import { AnalysisErrorBoundary } from "@/components/models/error-boundary";
 import type { ModelAccount, ModelPost, WritingProfile, AnalysisResult } from "@/types/database";
 
 /** プラットフォーム表示名 */
@@ -240,13 +241,15 @@ export default async function ModelDetailPage({
       </Card>
 
       {/* AI分析レポート */}
-      <AnalysisReport
-        modelId={id}
-        stats={stats}
-        posts={typedPosts}
-        analysisResult={typedModel.analysis_result as AnalysisResult | null}
-        lastAnalyzedAt={typedModel.last_analyzed_at}
-      />
+      <AnalysisErrorBoundary fallbackTitle="分析レポートの表示でエラーが発生しました">
+        <AnalysisReport
+          modelId={id}
+          stats={stats}
+          posts={typedPosts}
+          analysisResult={typedModel.analysis_result as AnalysisResult | null}
+          lastAnalyzedAt={typedModel.last_analyzed_at}
+        />
+      </AnalysisErrorBoundary>
 
       {/* スタイル比較（分析結果がある場合のみ表示） */}
       {typedModel.analysis_result && (

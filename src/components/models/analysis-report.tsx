@@ -4,8 +4,9 @@
  * AI分析レポートコンポーネント
  * 基本統計・カテゴリ別エンゲージメント（棒グラフ）・投稿一覧テーブルを表示
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
+import { AnalysisErrorBoundary } from "@/components/models/error-boundary";
 import {
   Heart,
   MessageCircle,
@@ -101,6 +102,27 @@ export function AnalysisReport({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isDeepAnalyzing, setIsDeepAnalyzing] = useState(false);
   const [isFetching, setIsFetching] = useState(false);
+
+  // #region agent log
+  useEffect(() => {
+    if (analysisResult) {
+      console.error("[DEBUG-e11e43] H1: analysisResult fields check", {
+        has_writing_style: !!analysisResult.writing_style,
+        has_summary: !!analysisResult.summary,
+        has_hashtag_strategy: !!analysisResult.hashtag_strategy,
+        has_posting_frequency: !!analysisResult.posting_frequency,
+        has_engagement_patterns: !!analysisResult.engagement_patterns,
+        has_modeling_tips: !!analysisResult.modeling_tips,
+        has_markdown_report: !!analysisResult.markdown_report,
+        has_thread_analysis: !!analysisResult.thread_analysis,
+        data_source: analysisResult.data_source,
+        all_keys: Object.keys(analysisResult),
+      });
+    } else {
+      console.error("[DEBUG-e11e43] H1: analysisResult is null/undefined");
+    }
+  }, [analysisResult]);
+  // #endregion
 
   /** 投稿データを取得 */
   const handleFetchPosts = async () => {
