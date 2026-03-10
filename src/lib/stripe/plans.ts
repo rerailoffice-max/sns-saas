@@ -55,7 +55,7 @@ export const PLAN_LIMITS: Record<SubscriptionPlan, PlanLimits> = {
     openclawPerDay: Infinity,
     aiEditsPerMonth: 30,
     apiRatePerDay: 1000,
-    maxModelAccounts: 5,
+    maxModelAccounts: Infinity,
     aiOptimizationEnabled: true,
     advancedAnalyticsAiSummary: true,
   },

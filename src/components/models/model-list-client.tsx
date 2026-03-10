@@ -196,11 +196,9 @@ export function ModelListClient({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="threads">Threads</SelectItem>
+                    <SelectItem value="x">X（旧Twitter）</SelectItem>
                     <SelectItem value="instagram" disabled>
                       Instagram（準備中）
-                    </SelectItem>
-                    <SelectItem value="x" disabled>
-                      X（準備中）
                     </SelectItem>
                   </SelectContent>
                 </Select>
@@ -282,25 +280,14 @@ export function ModelListClient({
         </div>
       )}
 
-      {/* プラン制限の注意表示 */}
-      {isLimitReached && (
+      {/* プラン制限の注意表示（有限の場合のみ） */}
+      {isLimitReached && maxModelAccounts !== Infinity && (
         <Alert>
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>登録上限に達しました</AlertTitle>
           <AlertDescription>
             現在のプラン（{plan}）ではモデルアカウントを{maxModelAccounts}
             件まで登録できます。より多くのアカウントを分析するにはプランをアップグレードしてください。
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {/* プラン制限: freeプランは0件 */}
-      {maxModelAccounts === 0 && (
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>モデリング機能はStarterプラン以上で利用できます</AlertTitle>
-          <AlertDescription>
-            モデルアカウントの登録・AI分析を利用するには、プランをアップグレードしてください。
           </AlertDescription>
         </Alert>
       )}
@@ -333,11 +320,9 @@ export function ModelListClient({
       )}
 
       {/* 登録数表示 */}
-      {maxModelAccounts > 0 && (
-        <p className="text-xs text-muted-foreground text-right">
-          {models.length} / {maxModelAccounts === Infinity ? "無制限" : maxModelAccounts} 件登録済み
-        </p>
-      )}
+      <p className="text-xs text-muted-foreground text-right">
+        {models.length} 件登録済み
+      </p>
     </div>
   );
 }

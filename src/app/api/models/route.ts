@@ -109,7 +109,8 @@ export async function POST(request: NextRequest) {
   }
 
   // 登録成功後: バックグラウンドでプロフィール・投稿を自動取得→AI分析
-  if (model) {
+  // X はAPI自動取得に非対応のため、手動インポート（upload-analysis.js）を使用
+  if (model && parsed.data.platform === "threads") {
     const cookies = request.headers.get("cookie") ?? "";
     fetchModelDataBackground(user.id, model.id, parsed.data.platform, parsed.data.username, cookies);
   }

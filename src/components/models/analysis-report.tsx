@@ -4,9 +4,8 @@
  * AI分析レポートコンポーネント
  * 基本統計・カテゴリ別エンゲージメント（棒グラフ）・投稿一覧テーブルを表示
  */
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import dynamic from "next/dynamic";
-import { AnalysisErrorBoundary } from "@/components/models/error-boundary";
 import {
   Heart,
   MessageCircle,
@@ -102,27 +101,6 @@ export function AnalysisReport({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isDeepAnalyzing, setIsDeepAnalyzing] = useState(false);
   const [isFetching, setIsFetching] = useState(false);
-
-  // #region agent log
-  useEffect(() => {
-    if (analysisResult) {
-      console.error("[DEBUG-e11e43] H1: analysisResult fields check", {
-        has_writing_style: !!analysisResult.writing_style,
-        has_summary: !!analysisResult.summary,
-        has_hashtag_strategy: !!analysisResult.hashtag_strategy,
-        has_posting_frequency: !!analysisResult.posting_frequency,
-        has_engagement_patterns: !!analysisResult.engagement_patterns,
-        has_modeling_tips: !!analysisResult.modeling_tips,
-        has_markdown_report: !!analysisResult.markdown_report,
-        has_thread_analysis: !!analysisResult.thread_analysis,
-        data_source: analysisResult.data_source,
-        all_keys: Object.keys(analysisResult),
-      });
-    } else {
-      console.error("[DEBUG-e11e43] H1: analysisResult is null/undefined");
-    }
-  }, [analysisResult]);
-  // #endregion
 
   /** 投稿データを取得 */
   const handleFetchPosts = async () => {
@@ -650,43 +628,70 @@ export function AnalysisReport({
 
                   {/* スレッド構成分析 */}
                   {analysisResult.thread_analysis &&
-                    analysisResult.thread_analysis.by_length?.length > 0 && (
-                      <Card>
-                        <CardHeader>
-                          <div className="flex items-center justify-between">
-                            <CardTitle>スレッド構成分析</CardTitle>
-                            {analysisResult.thread_analysis.optimal_length != null && (
-                              <Badge variant="secondary">
-                                最適: {analysisResult.thread_analysis.optimal_length}件
-                              </Badge>
-                            )}
-                          </div>
-                        </CardHeader>
-                        <CardContent>
-                          <ResponsiveContainer width="100%" height={300}>
-                            <BarChart
-                              data={analysisResult.thread_analysis.by_length.map(
-                                (d) => ({
-                                  name: `${d.length}件`,
-                                  平均いいね: d.avg_likes,
-                                })
+                    analysisResult.thread_analysis.by_length?.length > 0 && (() => {
+                      const hasViews = analysisResult.thread_analysis!.by_length.some((d) => d.avg_views > 0);
+                      const chartData = analysisResult.thread_analysis!.by_length.map((d) => ({
+                        name: d.length === 1 ? "単発投稿" : `${d.length}投稿`,
+                        スレッド数: d.count,
+                        平均いいね: d.avg_likes,
+                        ...(hasViews ? { 平均表示: d.avg_views } : {}),
+                      }));
+                      return (
+                        <Card>
+                          <CardHeader>
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <CardTitle>スレッド構成分析</CardTitle>
+                                <CardDescription>
+                                  スレッド内の投稿数別にエンゲージメントを比較。最もいいねが伸びるスレッド長がわかります。
+                                </CardDescription>
+                              </div>
+                              {analysisResult.thread_analysis!.optimal_length != null && (
+                                <Badge variant="secondary" className="shrink-0">
+                                  最適: {analysisResult.thread_analysis!.optimal_length}投稿
+                                </Badge>
                               )}
-                              margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                            >
-                              <CartesianGrid strokeDasharray="3 3" />
-                              <XAxis dataKey="name" />
-                              <YAxis />
-                              <Tooltip />
-                              <Bar
-                                dataKey="平均いいね"
-                                fill="hsl(346, 77%, 49%)"
-                                radius={[4, 4, 0, 0]}
-                              />
-                            </BarChart>
-                          </ResponsiveContainer>
-                        </CardContent>
-                      </Card>
-                    )}
+                            </div>
+                          </CardHeader>
+                          <CardContent>
+                            <ResponsiveContainer width="100%" height={320}>
+                              <BarChart
+                                data={chartData}
+                                margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                              >
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="name" />
+                                <YAxis yAxisId="left" />
+                                <YAxis yAxisId="right" orientation="right" />
+                                <Tooltip />
+                                <Legend />
+                                <Bar
+                                  yAxisId="left"
+                                  dataKey="平均いいね"
+                                  fill="hsl(346, 77%, 49%)"
+                                  radius={[4, 4, 0, 0]}
+                                />
+                                {hasViews && (
+                                  <Bar
+                                    yAxisId="left"
+                                    dataKey="平均表示"
+                                    fill="hsl(217, 91%, 59%)"
+                                    radius={[4, 4, 0, 0]}
+                                  />
+                                )}
+                                <Bar
+                                  yAxisId="right"
+                                  dataKey="スレッド数"
+                                  fill="hsl(142, 71%, 45%)"
+                                  radius={[4, 4, 0, 0]}
+                                  opacity={0.5}
+                                />
+                              </BarChart>
+                            </ResponsiveContainer>
+                          </CardContent>
+                        </Card>
+                      );
+                    })()}
 
                   {/* フックパターン分析 */}
                   {analysisResult.hook_analysis &&

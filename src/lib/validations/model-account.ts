@@ -6,7 +6,7 @@ import { z } from "zod";
 
 /** モデルアカウント登録リクエスト */
 export const createModelAccountSchema = z.object({
-  platform: z.literal("threads"), // MVP-0: Threadsのみ
+  platform: z.enum(["threads", "x"]),
   username: z
     .string()
     .min(1, "ユーザー名は必須です")
