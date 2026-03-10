@@ -10,7 +10,7 @@ export const createDraftSchema = z.object({
   text: z
     .string()
     .min(1, "投稿テキストは必須です")
-    .max(500, "Threadsの文字数制限（500文字）を超えています"),
+    .max(2500, "文字数制限を超えています"),
   hashtags: z.array(z.string()).max(30).optional(),
   media_urls: z.array(z.string().url()).max(10).optional(),
   source: z.enum(["manual", "openclaw", "ai"]).default("manual"),
@@ -22,10 +22,11 @@ export const updateDraftSchema = z.object({
   text: z
     .string()
     .min(1)
-    .max(500)
+    .max(2500)
     .optional(),
   hashtags: z.array(z.string()).max(30).optional(),
   media_urls: z.array(z.string().url()).max(10).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   status: z
     .enum(["draft", "scheduled", "publishing", "published", "failed"])
     .optional(),

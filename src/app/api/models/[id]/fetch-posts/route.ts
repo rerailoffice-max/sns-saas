@@ -67,6 +67,7 @@ export async function POST(
     // 公開投稿を取得（最大50件）
     const threadsResult = await adapter.getPublicThreads(
       model.platform_user_id ?? model.username,
+      accessToken,
       { limit: 50 }
     );
 
@@ -102,7 +103,8 @@ export async function POST(
     // プロフィール情報も更新（display_name, avatar_url）
     try {
       const profile = await adapter.getPublicProfile(
-        model.platform_user_id ?? model.username
+        model.platform_user_id ?? model.username,
+        accessToken
       );
       await admin
         .from("model_accounts")

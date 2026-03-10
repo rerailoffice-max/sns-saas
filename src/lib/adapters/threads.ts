@@ -339,13 +339,12 @@ export class ThreadsAdapter implements SNSAdapter {
    * 他ユーザーの公開プロフィールを取得（モデリング用）
    * ※ Advanced Access権限が必要
    */
-  async getPublicProfile(userId: string): Promise<PublicProfile> {
-    // Threads APIでは他ユーザーの情報取得にはAdvanced Accessが必要
-    // アクセストークンはアプリレベルのトークンを使用
+  async getPublicProfile(userId: string, accessToken: string): Promise<PublicProfile> {
     const res = await fetch(
       `${THREADS_API_BASE}/${userId}?` +
         new URLSearchParams({
           fields: "id,username,name,threads_profile_picture_url",
+          access_token: accessToken,
         })
     );
 
@@ -372,10 +371,12 @@ export class ThreadsAdapter implements SNSAdapter {
    */
   async getPublicThreads(
     userId: string,
+    accessToken: string,
     options?: PaginationOptions
   ): Promise<ThreadList> {
     const params = new URLSearchParams({
       fields: "id,text,media_type,media_url,timestamp,permalink",
+      access_token: accessToken,
     });
 
     if (options?.limit) {

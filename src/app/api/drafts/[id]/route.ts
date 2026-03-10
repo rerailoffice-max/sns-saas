@@ -27,12 +27,17 @@ export async function PUT(
     );
   }
 
+  const updatePayload: Record<string, unknown> = {
+    ...parsed.data,
+    updated_at: new Date().toISOString(),
+  };
+  if (body.metadata) {
+    updatePayload.metadata = body.metadata;
+  }
+
   const { data: draft, error } = await supabase
     .from("drafts")
-    .update({
-      ...parsed.data,
-      updated_at: new Date().toISOString(),
-    })
+    .update(updatePayload)
     .eq("id", id)
     .eq("profile_id", user.id)
     .select()

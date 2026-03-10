@@ -57,18 +57,27 @@ export default async function ComposePage({ searchParams }: ComposePageProps) {
     media_urls: string[];
     account_id: string;
     hashtags: string[];
+    thread_posts?: string[];
   } | null = null;
 
   if (params.draft) {
     const { data: draft } = await supabase
       .from("drafts")
-      .select("id, text, media_urls, account_id, hashtags")
+      .select("id, text, media_urls, account_id, hashtags, metadata")
       .eq("id", params.draft)
       .eq("profile_id", user.id)
       .single();
 
     if (draft) {
-      initialDraft = draft;
+      const meta = draft.metadata as Record<string, unknown> | null;
+      initialDraft = {
+        id: draft.id,
+        text: draft.text,
+        media_urls: draft.media_urls ?? [],
+        account_id: draft.account_id,
+        hashtags: draft.hashtags ?? [],
+        thread_posts: Array.isArray(meta?.thread_posts) ? meta.thread_posts as string[] : undefined,
+      };
     }
   }
 

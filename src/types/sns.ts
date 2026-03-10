@@ -141,11 +141,12 @@ export interface SNSAdapter {
   ): Promise<ThreadList>;
 
   /** 他ユーザーの公開プロフィールを取得（モデリング用） */
-  getPublicProfile(userId: string): Promise<PublicProfile>;
+  getPublicProfile(userId: string, accessToken: string): Promise<PublicProfile>;
 
   /** 他ユーザーの公開投稿一覧を取得（モデリング用） */
   getPublicThreads(
     userId: string,
+    accessToken: string,
     options?: PaginationOptions
   ): Promise<ThreadList>;
 }

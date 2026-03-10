@@ -4,7 +4,7 @@
  * 投稿エディタコンポーネント
  * テキスト入力・文字数カウント・アカウント選択・下書き保存
  */
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ import { CharCounter } from "./char-counter";
 import { PostPreview } from "./post-preview";
 import { AiAssistButton } from "./ai-assist-button";
 import { HashtagSuggest } from "./hashtag-suggest";
-import { Save, Send, Loader2, AlertCircle, X, Plus } from "lucide-react";
+import { Save, Send, Loader2, AlertCircle, X, Plus, ImagePlus } from "lucide-react";
 import { toast } from "sonner";
 import type { HashtagStats } from "@/lib/hashtag-recommend";
 
@@ -40,6 +40,7 @@ interface InitialDraft {
   media_urls: string[];
   account_id: string;
   hashtags: string[];
+  thread_posts?: string[];
 }
 
 interface PostEditorProps {
@@ -54,16 +55,68 @@ const MAX_CHARS = 500; // Threads文字数制限
 export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = [], initialDraft }: PostEditorProps) {
   const router = useRouter();
   const [draftId, setDraftId] = useState<string | null>(initialDraft?.id ?? null);
-  const [text, setText] = useState(initialDraft?.text ?? "");
-  const [threadMode, setThreadMode] = useState(false);
-  const [threadPosts, setThreadPosts] = useState<string[]>([]);
+  const hasInitialThread = !!(initialDraft?.thread_posts && initialDraft.thread_posts.length > 0);
+  const [text, setText] = useState(hasInitialThread ? "" : (initialDraft?.text ?? ""));
+  const [threadMode, setThreadMode] = useState(hasInitialThread);
+  const [threadPosts, setThreadPosts] = useState<string[]>(
+    hasInitialThread ? initialDraft!.thread_posts! : []
+  );
   const [mediaUrls, setMediaUrls] = useState<string[]>(initialDraft?.media_urls ?? []);
   const [selectedAccountId, setSelectedAccountId] = useState(
     initialDraft?.account_id ?? accounts[0]?.id ?? ""
   );
   const [isSaving, setIsSaving] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const uploadFiles = useCallback(async (files: FileList | File[]) => {
+    const fileArray = Array.from(files);
+    if (fileArray.length === 0) return;
+
+    setIsUploading(true);
+    setError(null);
+
+    try {
+      const newUrls: string[] = [];
+      for (const file of fileArray) {
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await fetch("/api/upload", { method: "POST", body: formData });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error ?? "アップロードに失敗しました");
+        }
+        const data = await res.json();
+        newUrls.push(data.url);
+      }
+      setMediaUrls((prev) => [...prev, ...newUrls]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "アップロードに失敗しました");
+    } finally {
+      setIsUploading(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files.length > 0) {
+      uploadFiles(e.dataTransfer.files);
+    }
+  }, [uploadFiles]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  }, []);
 
   const charCount = text.length;
   const isOverLimit = charCount > MAX_CHARS;
@@ -130,8 +183,8 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
           text: threadPosts.join("\n\n"),
           hashtags,
           source: "manual" as const,
-          thread_posts: threadPosts,
           media_urls: mediaUrls,
+          metadata: { thread_posts: threadPosts, thread_mode: true },
         }
       : {
           account_id: selectedAccountId,
@@ -139,6 +192,7 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
           hashtags,
           source: "manual" as const,
           media_urls: mediaUrls,
+          metadata: {},
         };
 
     try {
@@ -344,32 +398,83 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
               </div>
             )}
 
-            {/* メディアプレビュー */}
-            {mediaUrls.length > 0 && (
-              <div>
-                <p className="text-sm font-medium mb-2">添付メディア</p>
-                <div className="flex gap-2 overflow-x-auto">
-                  {mediaUrls.map((url, i) => (
-                    <div key={i} className="relative shrink-0">
-                      <img
-                        src={url}
-                        alt={`メディア ${i + 1}`}
-                        className="h-24 w-24 rounded-md object-cover border"
-                      />
-                      <button
-                        type="button"
-                        className="absolute -top-1 -right-1 rounded-full bg-destructive text-destructive-foreground h-5 w-5 flex items-center justify-center text-xs"
-                        onClick={() =>
-                          setMediaUrls((prev) => prev.filter((_, idx) => idx !== i))
-                        }
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
+            {/* メディアアップロード & プレビュー */}
+            <div>
+              <div
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onClick={() => fileInputRef.current?.click()}
+                className={`relative flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-4 cursor-pointer transition-colors ${
+                  isDragging
+                    ? "border-primary bg-primary/5"
+                    : "border-muted-foreground/25 hover:border-muted-foreground/50"
+                }`}
+              >
+                {isUploading ? (
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                ) : (
+                  <ImagePlus className="h-6 w-6 text-muted-foreground" />
+                )}
+                <p className="text-sm text-muted-foreground">
+                  {isUploading
+                    ? "アップロード中..."
+                    : "画像・動画をドラッグ&ドロップ、またはクリックして選択"}
+                </p>
+                <p className="text-xs text-muted-foreground/60">
+                  画像: 8MB以下 / 動画: 25MB以下（JPEG, PNG, GIF, WebP, MP4）
+                </p>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files) uploadFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
               </div>
-            )}
+
+              {mediaUrls.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-sm font-medium mb-2">添付メディア</p>
+                  <div className="flex gap-2 overflow-x-auto">
+                    {mediaUrls.map((url, i) => {
+                      const isVideo = /\.(mp4|mov)$/i.test(url) || url.includes("video");
+                      return (
+                        <div key={i} className="relative shrink-0">
+                          {isVideo ? (
+                            <video
+                              src={url}
+                              className="h-24 w-24 rounded-md object-cover border"
+                              muted
+                            />
+                          ) : (
+                            <img
+                              src={url}
+                              alt={`メディア ${i + 1}`}
+                              className="h-24 w-24 rounded-md object-cover border"
+                            />
+                          )}
+                          <button
+                            type="button"
+                            className="absolute -top-1 -right-1 rounded-full bg-destructive text-destructive-foreground h-5 w-5 flex items-center justify-center text-xs"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setMediaUrls((prev) => prev.filter((_, idx) => idx !== i));
+                            }}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* AIアシスト & ハッシュタグ提案 */}
             <div className="flex items-center gap-2">

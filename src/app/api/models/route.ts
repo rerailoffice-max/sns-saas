@@ -147,7 +147,7 @@ async function fetchModelDataBackground(
 
     // プロフィール取得 → display_name, avatar_url を更新
     try {
-      const profile = await adapter.getPublicProfile(username);
+      const profile = await adapter.getPublicProfile(username, accessToken);
       await admin
         .from("model_accounts")
         .update({
@@ -162,7 +162,7 @@ async function fetchModelDataBackground(
 
     // 公開投稿を取得（最大25件）
     try {
-      const threadsResult = await adapter.getPublicThreads(username, {
+      const threadsResult = await adapter.getPublicThreads(username, accessToken, {
         limit: 25,
       });
       const posts = threadsResult.data ?? [];

@@ -69,6 +69,7 @@ export async function GET(request: NextRequest) {
           // 投稿を取得（最大25件＝新着分）
           const threadsResult = await adapter.getPublicThreads(
             model.platform_user_id ?? model.username,
+            accessToken,
             { limit: 25 }
           );
 
