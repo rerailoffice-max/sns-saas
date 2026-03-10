@@ -153,7 +153,8 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
     setThreadMode(checked);
     if (checked) {
       if (text.trim()) {
-        setThreadPosts([text]);
+        const parts = text.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+        setThreadPosts(parts.length > 1 ? parts : [text]);
         setText("");
       } else if (threadPosts.length === 0) {
         setThreadPosts([""]);
