@@ -1,14 +1,19 @@
 /**
  * 投稿作成ページ
  * 下書き作成 → 即時投稿 or 予約投稿
- * Supabase未接続時はデモアカウントで表示
+ * ?draft=<id> で下書き編集モード
  */
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { PostEditor } from "@/components/compose/post-editor";
 
-export default async function ComposePage() {
-  // Supabase未接続時はデモアカウントで表示
+interface ComposePageProps {
+  searchParams: Promise<{ draft?: string }>;
+}
+
+export default async function ComposePage({ searchParams }: ComposePageProps) {
+  const params = await searchParams;
+
   if (
     !process.env.NEXT_PUBLIC_SUPABASE_URL ||
     !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -39,7 +44,6 @@ export default async function ComposePage() {
     redirect("/login");
   }
 
-  // 接続済みアカウント取得
   const { data: accounts } = await supabase
     .from("social_accounts")
     .select("id, platform, username, display_name")
@@ -47,10 +51,33 @@ export default async function ComposePage() {
     .eq("is_active", true)
     .order("created_at", { ascending: true });
 
+  let initialDraft: {
+    id: string;
+    text: string;
+    media_urls: string[];
+    account_id: string;
+    hashtags: string[];
+  } | null = null;
+
+  if (params.draft) {
+    const { data: draft } = await supabase
+      .from("drafts")
+      .select("id, text, media_urls, account_id, hashtags")
+      .eq("id", params.draft)
+      .eq("profile_id", user.id)
+      .single();
+
+    if (draft) {
+      initialDraft = draft;
+    }
+  }
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">投稿作成</h1>
-      <PostEditor accounts={accounts ?? []} />
+      <h1 className="text-2xl font-bold">
+        {initialDraft ? "下書きを編集" : "投稿作成"}
+      </h1>
+      <PostEditor accounts={accounts ?? []} initialDraft={initialDraft} />
     </div>
   );
 }

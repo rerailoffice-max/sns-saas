@@ -34,21 +34,33 @@ interface ModelAccount {
   display_name: string | null;
 }
 
+interface InitialDraft {
+  id: string;
+  text: string;
+  media_urls: string[];
+  account_id: string;
+  hashtags: string[];
+}
+
 interface PostEditorProps {
   accounts: Account[];
   hashtagSuggestions?: HashtagStats[];
   modelAccounts?: ModelAccount[];
+  initialDraft?: InitialDraft | null;
 }
 
 const MAX_CHARS = 500; // Threads文字数制限
 
-export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = [] }: PostEditorProps) {
+export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = [], initialDraft }: PostEditorProps) {
   const router = useRouter();
-  const [text, setText] = useState("");
+  const [draftId, setDraftId] = useState<string | null>(initialDraft?.id ?? null);
+  const [text, setText] = useState(initialDraft?.text ?? "");
   const [threadMode, setThreadMode] = useState(false);
   const [threadPosts, setThreadPosts] = useState<string[]>([]);
-  const [mediaUrls, setMediaUrls] = useState<string[]>([]);
-  const [selectedAccountId, setSelectedAccountId] = useState(accounts[0]?.id ?? "");
+  const [mediaUrls, setMediaUrls] = useState<string[]>(initialDraft?.media_urls ?? []);
+  const [selectedAccountId, setSelectedAccountId] = useState(
+    initialDraft?.account_id ?? accounts[0]?.id ?? ""
+  );
   const [isSaving, setIsSaving] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -130,8 +142,10 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
         };
 
     try {
-      const res = await fetch("/api/drafts", {
-        method: "POST",
+      const url = draftId ? `/api/drafts/${draftId}` : "/api/drafts";
+      const method = draftId ? "PUT" : "POST";
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
@@ -141,7 +155,12 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
         throw new Error(data.error ?? "保存に失敗しました");
       }
 
-      toast.success("下書きを保存しました");
+      const data = await res.json();
+      if (!draftId && data.draft?.id) {
+        setDraftId(data.draft.id);
+      }
+
+      toast.success(draftId ? "下書きを更新しました" : "下書きを保存しました");
       router.push("/drafts");
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存に失敗しました");
