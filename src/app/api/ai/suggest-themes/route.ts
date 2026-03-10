@@ -83,7 +83,7 @@ export async function POST() {
     });
 
     const response = await anthropic.messages.create({
-      model: "claude-haiku-4-5-20250514",
+      model: "claude-sonnet-4-20250514",
       max_tokens: 1500,
       system: `あなたはSNSマーケティングの専門家です。モデルアカウントの最新投稿を分析し、今バズりそうなテーマを提案してください。
 
