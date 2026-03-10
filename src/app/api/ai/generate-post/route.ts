@@ -149,8 +149,10 @@ export async function POST(request: NextRequest) {
 
       let userContent: string;
       let fetchedMediaUrls: string[] = [];
+      let fetchedSource = "";
       if (source_url) {
         const urlContent = await fetchUrlContent(source_url);
+        fetchedSource = urlContent.source;
         if (urlContent.error || !urlContent.text) {
           return NextResponse.json(
             {
@@ -195,19 +197,29 @@ ${thread_count ? `\nスレッドは${thread_count}件で構成してください
         if (arrayMatch) jsonStr = arrayMatch[0];
       }
 
-      const threadPosts = JSON.parse(jsonStr) as string[];
-      const posts = Array.isArray(threadPosts)
-        ? threadPosts.map((text, i) => ({
-            text,
-            style: `スレッド投稿${i + 1}`,
-          }))
-        : [];
+      let threadPosts = JSON.parse(jsonStr) as string[];
+      if (!Array.isArray(threadPosts)) threadPosts = [];
+
+      if (
+        source_url &&
+        threadPosts.length > 0 &&
+        fetchedSource === "article" &&
+        !threadPosts[0].includes(source_url)
+      ) {
+        threadPosts[0] = threadPosts[0].trimEnd() + "\n\n" + source_url;
+      }
+
+      const posts = threadPosts.map((text, i) => ({
+        text,
+        style: `スレッド投稿${i + 1}`,
+      }));
 
       return NextResponse.json({
         data: {
           posts,
-          thread_posts: Array.isArray(threadPosts) ? threadPosts : [],
+          thread_posts: threadPosts,
           media_urls: fetchedMediaUrls,
+          source_url: source_url ?? null,
           model: model_account_id ? "model" : "default",
         },
       });

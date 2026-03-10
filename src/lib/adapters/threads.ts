@@ -146,6 +146,7 @@ export class ThreadsAdapter implements SNSAdapter {
     // Step 1: メディアコンテナを作成
     const containerParams: Record<string, string> = {
       text: content.text,
+      media_type: "TEXT",
       access_token: accessToken,
     };
 
@@ -153,7 +154,6 @@ export class ThreadsAdapter implements SNSAdapter {
       containerParams.media_type = "IMAGE";
       containerParams.image_url = content.media_urls[0];
     } else if (content.media_urls && content.media_urls.length > 1) {
-      // カルーセル投稿: 各メディアのコンテナを先に作成
       containerParams.media_type = "CAROUSEL";
       // TODO: カルーセル用の個別コンテナ作成ロジック
     }
