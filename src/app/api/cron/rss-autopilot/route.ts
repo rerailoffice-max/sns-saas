@@ -6,7 +6,7 @@
  * 1. 有効なユーザーの設定を取得
  * 2. RSSフィードを取得→rss_articlesに保存
  * 3. AIがトレンド記事をピックアップ
- * 4. スレッド投稿を生成→下書き保存→自動予約
+ * 4. スレッド投稿を生成→下書き保存（予約はユーザーが手動で行う）
  */
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllFeeds, DEFAULT_RSS_FEEDS, type RSSFeed } from "@/lib/rss/parser";
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
   }
 
   const admin = createAdminClient();
-  const stats = { users_processed: 0, articles_saved: 0, drafts_created: 0, posts_scheduled: 0 };
+  const stats = { users_processed: 0, articles_saved: 0, drafts_created: 0 };
 
   // 1. 有効な自動投稿設定を取得
   const { data: settings, error: settingsError } = await admin
@@ -67,7 +67,7 @@ async function processUser(
   admin: ReturnType<typeof createAdminClient>,
   anthropic: Anthropic,
   setting: AutoPostSetting,
-  stats: { users_processed: number; articles_saved: number; drafts_created: number; posts_scheduled: number }
+  stats: { users_processed: number; articles_saved: number; drafts_created: number }
 ) {
   stats.users_processed++;
 
@@ -223,6 +223,7 @@ ${articlesList}`,
             source_url: article.link,
             rss_source: article.source,
             rss_title: article.title,
+            auto_generated: true,
           },
           status: "draft",
         })
@@ -231,28 +232,6 @@ ${articlesList}`,
 
       if (draftError || !draft) continue;
       stats.drafts_created++;
-
-      // 予約作成
-      const scheduledAt = new Date(
-        Date.now() + (setting.schedule_delay_minutes + i * 60) * 60 * 1000
-      );
-
-      const { error: scheduleError } = await admin
-        .from("scheduled_posts")
-        .insert({
-          draft_id: draft.id,
-          account_id: setting.account_id,
-          scheduled_at: scheduledAt.toISOString(),
-          status: "pending",
-        });
-
-      if (!scheduleError) {
-        stats.posts_scheduled++;
-        await admin
-          .from("drafts")
-          .update({ status: "scheduled" })
-          .eq("id", draft.id);
-      }
 
       // 記事を使用済みに
       await admin

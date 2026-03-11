@@ -21,6 +21,7 @@ import { FollowersChart } from "@/components/dashboard/followers-chart";
 import { EngagementChart } from "@/components/dashboard/engagement-chart";
 import { RecentPosts } from "@/components/dashboard/recent-posts";
 import { PeriodFilter } from "@/components/dashboard/period-filter";
+import { RSSNewsFeed } from "@/components/dashboard/rss-news-feed";
 
 // モックデータ（Supabase未接続時用）
 const MOCK_FOLLOWERS = Array.from({ length: 30 }, (_, i) => ({
@@ -400,6 +401,9 @@ function DashboardView({
           </CardContent>
         </Card>
       </div>
+
+      {/* 最新AIニュース */}
+      <RSSNewsFeed />
 
       {/* チャートエリア */}
       <div className="grid gap-4 lg:grid-cols-2">

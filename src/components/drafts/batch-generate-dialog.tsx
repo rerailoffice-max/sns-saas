@@ -16,13 +16,23 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Sparkles, Loader2, Lightbulb, PenLine } from "lucide-react";
+import { Sparkles, Loader2, Lightbulb, PenLine, Newspaper } from "lucide-react";
 import { toast } from "sonner";
 
 interface SuggestedTheme {
   theme: string;
   reason: string;
   source_username: string;
+}
+
+interface RSSArticle {
+  id: string;
+  title: string;
+  link: string;
+  description: string | null;
+  source: string;
+  published_at: string | null;
+  is_used: boolean;
 }
 
 interface BatchGenerateDialogProps {
@@ -43,6 +53,12 @@ export function BatchGenerateDialog({ accountId }: BatchGenerateDialogProps) {
   // 手動入力
   const [themesText, setThemesText] = useState("");
 
+  // RSS記事
+  const [rssArticles, setRssArticles] = useState<RSSArticle[]>([]);
+  const [selectedRssIds, setSelectedRssIds] = useState<Set<string>>(new Set());
+  const [isLoadingRss, setIsLoadingRss] = useState(false);
+  const [rssError, setRssError] = useState<string | null>(null);
+
   // 生成
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState<{
@@ -58,7 +74,50 @@ export function BatchGenerateDialog({ accountId }: BatchGenerateDialogProps) {
   const activeThemes =
     tab === "auto"
       ? Array.from(selectedThemes)
-      : manualThemes;
+      : tab === "manual"
+        ? manualThemes
+        : [];
+
+  const selectedArticles = rssArticles.filter((a) => selectedRssIds.has(a.id));
+
+  const handleLoadRss = async () => {
+    setIsLoadingRss(true);
+    setRssError(null);
+    try {
+      const res = await fetch("/api/rss-articles?limit=30&is_used=false");
+      if (!res.ok) throw new Error("RSS記事の取得に失敗しました");
+      const data = await res.json();
+      const articles: RSSArticle[] = data.data ?? [];
+      setRssArticles(articles);
+      setSelectedRssIds(new Set(articles.slice(0, 5).map((a) => a.id)));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "RSS記事の取得に失敗しました";
+      setRssError(msg);
+      toast.error(msg);
+    } finally {
+      setIsLoadingRss(false);
+    }
+  };
+
+  const toggleRssArticle = (id: string) => {
+    setSelectedRssIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleAllRss = () => {
+    if (selectedRssIds.size === rssArticles.length) {
+      setSelectedRssIds(new Set());
+    } else {
+      setSelectedRssIds(new Set(rssArticles.map((a) => a.id)));
+    }
+  };
 
   const handleSuggest = async () => {
     setIsSuggesting(true);
@@ -103,23 +162,43 @@ export function BatchGenerateDialog({ accountId }: BatchGenerateDialogProps) {
   };
 
   const handleGenerate = async () => {
-    if (activeThemes.length === 0) {
+    const isRssMode = tab === "rss";
+
+    if (!isRssMode && activeThemes.length === 0) {
       toast.error("テーマを1つ以上選択してください");
       return;
     }
+    if (isRssMode && selectedArticles.length === 0) {
+      toast.error("RSS記事を1つ以上選択してください");
+      return;
+    }
 
+    const total = isRssMode ? selectedArticles.length : activeThemes.length;
     setIsGenerating(true);
-    setProgress({ generated: 0, total: activeThemes.length });
+    setProgress({ generated: 0, total });
 
     try {
+      const payload: Record<string, unknown> = {
+        account_id: accountId,
+        thread_count: 4,
+      };
+
+      if (isRssMode) {
+        payload.rss_articles = selectedArticles.slice(0, 15).map((a) => ({
+          id: a.id,
+          title: a.title,
+          link: a.link,
+          description: a.description ?? undefined,
+          source: a.source,
+        }));
+      } else {
+        payload.themes = activeThemes.slice(0, 15);
+      }
+
       const res = await fetch("/api/ai/batch-generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          themes: activeThemes.slice(0, 15),
-          account_id: accountId,
-          thread_count: 4,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
@@ -151,6 +230,9 @@ export function BatchGenerateDialog({ accountId }: BatchGenerateDialogProps) {
     setSelectedThemes(new Set());
     setSuggestError(null);
     setThemesText("");
+    setRssArticles([]);
+    setSelectedRssIds(new Set());
+    setRssError(null);
     setTab("auto");
   };
 
@@ -177,10 +259,14 @@ export function BatchGenerateDialog({ accountId }: BatchGenerateDialogProps) {
         </DialogHeader>
 
         <Tabs value={tab} onValueChange={setTab} className="flex-1 min-h-0">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="auto">
               <Lightbulb className="mr-1.5 h-3.5 w-3.5" />
               自動提案
+            </TabsTrigger>
+            <TabsTrigger value="rss">
+              <Newspaper className="mr-1.5 h-3.5 w-3.5" />
+              RSSニュース
             </TabsTrigger>
             <TabsTrigger value="manual">
               <PenLine className="mr-1.5 h-3.5 w-3.5" />
@@ -288,6 +374,109 @@ export function BatchGenerateDialog({ accountId }: BatchGenerateDialogProps) {
             )}
           </TabsContent>
 
+          <TabsContent value="rss" className="space-y-3 mt-3 overflow-y-auto max-h-[50vh]">
+            {rssArticles.length === 0 && !isLoadingRss && !rssError && (
+              <div className="text-center py-8 space-y-3">
+                <Newspaper className="mx-auto h-10 w-10 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">
+                  RSSフィードから未使用のAIニュース記事を取得し、<br />
+                  選択した記事からスレッド投稿を自動生成します。
+                </p>
+                <Button onClick={handleLoadRss} disabled={isLoadingRss}>
+                  <Newspaper className="mr-2 h-4 w-4" />
+                  RSS記事を読み込む
+                </Button>
+              </div>
+            )}
+
+            {isLoadingRss && (
+              <div className="text-center py-8 space-y-3">
+                <Loader2 className="mx-auto h-8 w-8 animate-spin text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">
+                  RSS記事を取得中...
+                </p>
+              </div>
+            )}
+
+            {rssError && rssArticles.length === 0 && (
+              <div className="text-center py-8 space-y-3">
+                <p className="text-sm text-destructive">{rssError}</p>
+                <Button variant="outline" onClick={handleLoadRss}>
+                  再試行
+                </Button>
+              </div>
+            )}
+
+            {rssArticles.length > 0 && (
+              <>
+                <div className="flex items-center justify-between px-1">
+                  <button
+                    type="button"
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={toggleAllRss}
+                  >
+                    {selectedRssIds.size === rssArticles.length
+                      ? "すべて解除"
+                      : "すべて選択"}
+                  </button>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary">
+                      {selectedRssIds.size}/{rssArticles.length} 選択中
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleLoadRss}
+                      disabled={isLoadingRss}
+                      className="text-xs h-7"
+                    >
+                      {isLoadingRss ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        "再取得"
+                      )}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  {rssArticles.map((article) => (
+                    <label
+                      key={article.id}
+                      className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                        selectedRssIds.has(article.id)
+                          ? "border-primary bg-accent/40"
+                          : "border-border hover:bg-accent/20"
+                      }`}
+                    >
+                      <Checkbox
+                        checked={selectedRssIds.has(article.id)}
+                        onCheckedChange={() => toggleRssArticle(article.id)}
+                        className="mt-0.5"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium line-clamp-2">{article.title}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                            {article.source}
+                          </Badge>
+                          {article.published_at && (
+                            <span className="text-[10px] text-muted-foreground">
+                              {new Date(article.published_at).toLocaleDateString("ja-JP", {
+                                month: "short",
+                                day: "numeric",
+                              })}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
+          </TabsContent>
+
           <TabsContent value="manual" className="space-y-3 mt-3">
             <Textarea
               placeholder={`テーマを1行に1つずつ入力（最大15件）\n\n例:\nClaude Code活用術\nGemini 2.5の新機能\nAI画像生成の最新トレンド\nThreadsアルゴリズム変更`}
@@ -322,8 +511,9 @@ export function BatchGenerateDialog({ accountId }: BatchGenerateDialogProps) {
               onClick={handleGenerate}
               disabled={
                 isGenerating ||
-                activeThemes.length === 0 ||
-                activeThemes.length > 15
+                (tab === "rss"
+                  ? selectedArticles.length === 0 || selectedArticles.length > 15
+                  : activeThemes.length === 0 || activeThemes.length > 15)
               }
             >
               {isGenerating ? (
@@ -334,7 +524,7 @@ export function BatchGenerateDialog({ accountId }: BatchGenerateDialogProps) {
               ) : (
                 <>
                   <Sparkles className="mr-2 h-4 w-4" />
-                  {activeThemes.length}件を一括生成
+                  {tab === "rss" ? selectedArticles.length : activeThemes.length}件を一括生成
                 </>
               )}
             </Button>
