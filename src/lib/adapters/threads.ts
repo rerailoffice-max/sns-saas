@@ -192,13 +192,15 @@ export class ThreadsAdapter implements SNSAdapter {
     const containerData = await containerRes.json();
 
     // Step 2: コンテナがFINISHEDになるまでポーリング
+    // 動画は処理に時間がかかるため、最大2分待機
     const containerId = containerData.id;
-    const maxAttempts = 15;
-    const pollInterval = 2000;
+    const isVideoPost = containerParams.media_type === "VIDEO";
+    const maxAttempts = isVideoPost ? 40 : 15;
+    const pollInterval = isVideoPost ? 3000 : 2000;
 
     for (let i = 0; i < maxAttempts; i++) {
       const statusRes = await fetch(
-        `${THREADS_API_BASE}/${containerId}?fields=status&access_token=${accessToken}`
+        `${THREADS_API_BASE}/${containerId}?fields=status,error_message&access_token=${accessToken}`
       );
       if (statusRes.ok) {
         const statusData = await statusRes.json();
@@ -210,7 +212,8 @@ export class ThreadsAdapter implements SNSAdapter {
         }
       }
       if (i === maxAttempts - 1) {
-        throw new Error("コンテナの準備がタイムアウトしました（30秒）");
+        const timeoutSec = Math.round((maxAttempts * pollInterval) / 1000);
+        throw new Error(`コンテナの準備がタイムアウトしました（${timeoutSec}秒）`);
       }
       await new Promise((r) => setTimeout(r, pollInterval));
     }

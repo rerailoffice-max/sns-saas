@@ -13,6 +13,8 @@ import { getAdapter } from "@/lib/adapters/factory";
 import { decrypt } from "@/lib/encryption";
 import { z } from "zod";
 
+export const maxDuration = 120;
+
 // 既存の下書きを投稿
 const publishDraftSchema = z.object({
   draft_id: z.string().uuid(),

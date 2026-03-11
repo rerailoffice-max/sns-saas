@@ -8,6 +8,8 @@ import { getAdapter } from "@/lib/adapters/factory";
 import { decrypt } from "@/lib/encryption";
 import { NextRequest, NextResponse } from "next/server";
 
+export const maxDuration = 120;
+
 export async function POST(request: NextRequest) {
   // CRON_SECRET による認証
   const authHeader = request.headers.get("authorization");
