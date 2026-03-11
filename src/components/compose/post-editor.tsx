@@ -87,16 +87,40 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
       const newUrls: string[] = [];
       const newTypes: string[] = [];
       for (const file of fileArray) {
-        const formData = new FormData();
-        formData.append("file", file);
-        const res = await fetch("/api/upload", { method: "POST", body: formData });
-        if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.error ?? "アップロードに失敗しました");
+        // Step 1: 署名付きアップロードURLを取得
+        const metaRes = await fetch("/api/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fileName: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+          }),
+        });
+        if (!metaRes.ok) {
+          let errMsg = "アップロードに失敗しました";
+          try {
+            const errData = await metaRes.json();
+            errMsg = errData.error ?? errMsg;
+          } catch {
+            errMsg = `アップロードに失敗しました (${metaRes.status})`;
+          }
+          throw new Error(errMsg);
         }
-        const data = await res.json();
-        newUrls.push(data.url);
-        newTypes.push(data.type ?? "image");
+        const { signedUrl, publicUrl, type } = await metaRes.json();
+
+        // Step 2: Supabase Storageに直接アップロード
+        const uploadRes = await fetch(signedUrl, {
+          method: "PUT",
+          headers: { "Content-Type": file.type },
+          body: file,
+        });
+        if (!uploadRes.ok) {
+          throw new Error("ファイルのアップロードに失敗しました");
+        }
+
+        newUrls.push(publicUrl);
+        newTypes.push(type ?? "image");
       }
       setMediaUrls((prev) => [...prev, ...newUrls]);
       setMediaTypes((prev) => [...prev, ...newTypes]);
