@@ -173,6 +173,8 @@ export async function POST(request: NextRequest) {
     const adapter = getAdapter(account.platform);
     const threadPosts: string[] | undefined = body.thread_posts;
 
+    const mediaType = body.media_type as "image" | "video" | "carousel" | undefined;
+
     if (threadPosts && threadPosts.length >= 2) {
       const results: Array<{ platform_post_id: string; post_url: string; published_at: string }> = [];
       let replyToId: string | undefined;
@@ -181,6 +183,7 @@ export async function POST(request: NextRequest) {
         const result = await adapter.createPost(accessToken, {
           text: postText,
           media_urls: results.length === 0 ? draftMediaUrls : [],
+          media_type: results.length === 0 ? mediaType : undefined,
           reply_to: replyToId,
         });
         results.push(result);
@@ -229,6 +232,7 @@ export async function POST(request: NextRequest) {
     const result = await adapter.createPost(accessToken, {
       text: draftText,
       media_urls: draftMediaUrls,
+      media_type: mediaType,
     });
 
     if (draftId) {

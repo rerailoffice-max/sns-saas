@@ -64,6 +64,7 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
     hasInitialThread ? initialDraft!.thread_posts! : []
   );
   const [mediaUrls, setMediaUrls] = useState<string[]>(initialDraft?.media_urls ?? []);
+  const [mediaTypes, setMediaTypes] = useState<string[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState(
     initialDraft?.account_id ?? accounts[0]?.id ?? ""
   );
@@ -84,6 +85,7 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
 
     try {
       const newUrls: string[] = [];
+      const newTypes: string[] = [];
       for (const file of fileArray) {
         const formData = new FormData();
         formData.append("file", file);
@@ -94,8 +96,10 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
         }
         const data = await res.json();
         newUrls.push(data.url);
+        newTypes.push(data.type ?? "image");
       }
       setMediaUrls((prev) => [...prev, ...newUrls]);
+      setMediaTypes((prev) => [...prev, ...newTypes]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "アップロードに失敗しました");
     } finally {
@@ -251,9 +255,11 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
 
     const allAccounts = [selectedAccountId, ...crossPostAccounts];
 
+    const detectedMediaType = mediaTypes.includes("video") ? "video" : mediaUrls.length > 1 ? "carousel" : mediaUrls.length === 1 ? "image" : undefined;
+
     const payload = threadMode
-      ? { account_id: selectedAccountId, thread_posts: threadPosts, media_urls: mediaUrls, cross_post_accounts: crossPostAccounts.length > 0 ? crossPostAccounts : undefined }
-      : { account_id: selectedAccountId, text, hashtags, media_urls: mediaUrls, cross_post_accounts: crossPostAccounts.length > 0 ? crossPostAccounts : undefined };
+      ? { account_id: selectedAccountId, thread_posts: threadPosts, media_urls: mediaUrls, media_type: detectedMediaType, cross_post_accounts: crossPostAccounts.length > 0 ? crossPostAccounts : undefined }
+      : { account_id: selectedAccountId, text, hashtags, media_urls: mediaUrls, media_type: detectedMediaType, cross_post_accounts: crossPostAccounts.length > 0 ? crossPostAccounts : undefined };
 
     try {
       const res = await fetch("/api/posts/publish", {
@@ -529,6 +535,7 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
                             onClick={(e) => {
                               e.stopPropagation();
                               setMediaUrls((prev) => prev.filter((_, idx) => idx !== i));
+                              setMediaTypes((prev) => prev.filter((_, idx) => idx !== i));
                             }}
                           >
                             <X className="h-3 w-3" />

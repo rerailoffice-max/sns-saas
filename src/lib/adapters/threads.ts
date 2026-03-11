@@ -151,8 +151,19 @@ export class ThreadsAdapter implements SNSAdapter {
     };
 
     if (content.media_urls && content.media_urls.length === 1) {
-      containerParams.media_type = "IMAGE";
-      containerParams.image_url = content.media_urls[0];
+      const url = content.media_urls[0];
+      const isVideo =
+        content.media_type === "video" ||
+        /\.(mp4|mov|webm)(\?|$)/i.test(url) ||
+        url.includes("/video");
+
+      if (isVideo) {
+        containerParams.media_type = "VIDEO";
+        containerParams.video_url = url;
+      } else {
+        containerParams.media_type = "IMAGE";
+        containerParams.image_url = url;
+      }
     } else if (content.media_urls && content.media_urls.length > 1) {
       containerParams.media_type = "CAROUSEL";
       // TODO: カルーセル用の個別コンテナ作成ロジック

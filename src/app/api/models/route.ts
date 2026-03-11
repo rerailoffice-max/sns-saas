@@ -108,10 +108,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "登録に失敗しました" }, { status: 500 });
   }
 
-  // 登録成功後: バックグラウンドでデータ取得を試みる
+  // 登録成功後: バックグラウンドでデータ取得 + スクレイピングジョブ作成
   if (model) {
     const cookies = request.headers.get("cookie") ?? "";
     fetchModelDataBackground(user.id, model.id, parsed.data.platform, parsed.data.username, cookies);
+    createScrapingJob(user.id, model.id, parsed.data.username, parsed.data.platform);
   }
 
   return NextResponse.json({ data: model }, { status: 201 });
@@ -218,6 +219,29 @@ async function fetchModelDataBackground(
     }
   } catch (err) {
     console.error("モデルデータ自動取得エラー:", err);
+  }
+}
+
+/**
+ * スクレイピングジョブを作成（ローカルWorkerが自動で拾って実行する）
+ */
+async function createScrapingJob(
+  profileId: string,
+  modelId: string,
+  username: string,
+  platform: string
+) {
+  try {
+    const admin = createAdminClient();
+    await admin.from("scraping_jobs").insert({
+      model_account_id: modelId,
+      profile_id: profileId,
+      username,
+      platform,
+      status: "pending",
+    });
+  } catch (err) {
+    console.error("スクレイピングジョブ作成エラー:", err);
   }
 }
 

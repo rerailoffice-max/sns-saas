@@ -19,6 +19,7 @@ import {
 import { AnalysisReport } from "@/components/models/analysis-report";
 import { StyleComparison } from "@/components/models/style-comparison";
 import { ImportResearchButton } from "@/components/models/import-research-button";
+import { ScrapingStatus } from "@/components/models/scraping-status";
 import type { ModelAccount, ModelPost, WritingProfile, AnalysisResult } from "@/types/database";
 
 /** プラットフォーム表示名 */
@@ -226,6 +227,7 @@ export default async function ModelDetailPage({
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
+              <ScrapingStatus modelId={id} postsCount={typedPosts.length} />
               {typedPosts.length === 0 && (
                 <ImportResearchButton modelId={id} />
               )}

@@ -127,8 +127,8 @@ export async function middleware(request: NextRequest) {
   // 1. CRON APIルートの認証（CRON_SECRET）
   // ------------------------------------------
   if (isCronApiRoute(pathname)) {
-    const cronSecret = request.headers.get("x-cron-secret");
-    if (cronSecret !== process.env.CRON_SECRET) {
+    const authHeader = request.headers.get("authorization");
+    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
       return addSecurityHeaders(
         NextResponse.json(
           { error: "Unauthorized: Invalid CRON secret" },
@@ -136,7 +136,6 @@ export async function middleware(request: NextRequest) {
         )
       );
     }
-    // CRON APIはセキュリティヘッダーのみ付与して通過
     return addSecurityHeaders(response);
   }
 

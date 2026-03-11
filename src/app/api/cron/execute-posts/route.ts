@@ -35,10 +35,9 @@ export async function POST(request: NextRequest) {
 
   for (const post of posts) {
     try {
-      // ステータスを「処理中」に更新
       await adminClient
         .from("scheduled_posts")
-        .update({ status: "publishing" })
+        .update({ status: "processing" })
         .eq("id", post.id);
 
       // トークン復号化
