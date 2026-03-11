@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -14,11 +14,30 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+  themeColor: "#1e1b4b",
+};
+
 export const metadata: Metadata = {
-  title: "SNS管理SaaS - Threads特化のSNS管理・分析ツール",
+  title: "SNS Manager",
   description:
     "Threads対応のSNS管理・予約投稿・分析SaaS。投稿の予約、エンゲージメント分析、モデルアカウント分析でSNS運用を効率化。",
   keywords: ["SNS管理", "Threads", "予約投稿", "SNS分析", "エンゲージメント"],
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "SNS Manager",
+  },
+  icons: {
+    icon: "/icons/icon-192.png",
+    apple: "/icons/apple-touch-icon.png",
+  },
 };
 
 export default function RootLayout({
@@ -35,6 +54,17 @@ export default function RootLayout({
           {children}
           <Toaster />
         </TooltipProvider>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator) {
+                window.addEventListener('load', () => {
+                  navigator.serviceWorker.register('/sw.js');
+                });
+              }
+            `,
+          }}
+        />
       </body>
     </html>
   );

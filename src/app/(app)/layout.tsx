@@ -1,23 +1,25 @@
 /**
  * アプリ本体レイアウト（認証必須エリア）
- * サイドバー + ヘッダー + メインコンテンツ
- * Supabase未接続時はデモモードで表示
+ * デスクトップ: サイドバー + ヘッダー + メインコンテンツ
+ * モバイル: ヘッダー(ハンバーガー) + メインコンテンツ + ボトムナビ
  */
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { Header } from "@/components/layout/header";
+import { MobileBottomNav } from "@/components/layout/mobile-bottom-nav";
 
 export default async function AppLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // Supabase未設定時はデモモードで表示
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
     return (
-      <div className="flex h-screen">
-        <AppSidebar />
+      <div className="flex h-[100dvh]">
+        <div className="hidden md:flex">
+          <AppSidebar />
+        </div>
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header
             user={{
@@ -25,14 +27,14 @@ export default async function AppLayout({
               name: "デモユーザー",
             }}
           />
-          <main className="flex-1 overflow-y-auto p-6">
+          <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-20 md:pb-6">
             <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-              ⚠️ デモモード — Supabase環境変数が未設定のため、モックデータで表示しています。
-              <code className="mx-1 rounded bg-amber-100 px-1">.env.local</code>を設定してください。
+              デモモード — Supabase環境変数が未設定のため、モックデータで表示しています。
             </div>
             {children}
           </main>
         </div>
+        <MobileBottomNav />
       </div>
     );
   }
@@ -47,8 +49,10 @@ export default async function AppLayout({
   }
 
   return (
-    <div className="flex h-screen">
-      <AppSidebar />
+    <div className="flex h-[100dvh]">
+      <div className="hidden md:flex">
+        <AppSidebar />
+      </div>
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header
           user={{
@@ -57,8 +61,9 @@ export default async function AppLayout({
             avatarUrl: user.user_metadata?.avatar_url,
           }}
         />
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+        <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-20 md:pb-6">{children}</main>
       </div>
+      <MobileBottomNav />
     </div>
   );
 }

@@ -242,7 +242,8 @@ export function CalendarView({
             )}
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-x-auto">
+          <div className="min-w-[500px]">
           {/* 曜日ヘッダー */}
           <div className="grid grid-cols-7 mb-1">
             {WEEKDAY_LABELS.map((label, i) => (
@@ -270,7 +271,7 @@ export function CalendarView({
                 <div
                   key={index}
                   className={`
-                    min-h-[100px] border-r border-b p-1.5 cursor-pointer transition-colors
+                    min-h-[80px] md:min-h-[100px] border-r border-b p-1 md:p-1.5 cursor-pointer transition-colors
                     hover:bg-accent/50
                     ${!isCurrentMonth ? "bg-muted/30" : ""}
                     ${isToday ? "bg-blue-50 dark:bg-blue-950/20" : ""}
@@ -340,6 +341,7 @@ export function CalendarView({
                 </div>
               );
             })}
+          </div>
           </div>
         </CardContent>
       </Card>

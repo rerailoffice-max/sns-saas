@@ -173,11 +173,12 @@ export function DraftsView({ drafts, accountId }: DraftsViewProps) {
                       )}
                     </div>
 
-                    <div className="flex gap-1">
+                    <div className="flex gap-0.5 md:gap-1 shrink-0">
                       {draft.status === "draft" && !scheduledPost && resolvedAccountId && (
                         <Button
                           variant="ghost"
                           size="icon"
+                          className="h-10 w-10"
                           title="予約する"
                           onClick={() =>
                             setScheduleTarget({
@@ -187,12 +188,12 @@ export function DraftsView({ drafts, accountId }: DraftsViewProps) {
                             })
                           }
                         >
-                          <CalendarClock className="h-4 w-4 text-blue-500" />
+                          <CalendarClock className="h-5 w-5 text-blue-500" />
                         </Button>
                       )}
-                      <Button variant="ghost" size="icon" asChild>
+                      <Button variant="ghost" size="icon" className="h-10 w-10" asChild>
                         <Link href={`/compose?draft=${draft.id}`}>
-                          <PenSquare className="h-4 w-4" />
+                          <PenSquare className="h-5 w-5" />
                         </Link>
                       </Button>
                       <DraftDeleteButton draftId={draft.id} />
