@@ -15,7 +15,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -34,7 +33,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { ChevronLeft, ChevronRight, Clock, AlertCircle, CheckCircle2, Loader2, Pencil, Trash2, Save, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock, AlertCircle, CheckCircle2, Loader2, ExternalLink, Trash2, Save, MessageSquareText } from "lucide-react";
 import { toast } from "sonner";
 import type { ScheduledPost, Draft, SocialAccount, ScheduledPostStatus } from "@/types/database";
 
@@ -386,38 +385,44 @@ function PostDetailContent({
   onClose: () => void;
   onPostChanged: () => void;
 }) {
+  const router = useRouter();
   const config = STATUS_CONFIG[post.status];
   const isPending = post.status === "pending";
 
-  const [isEditing, setIsEditing] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  const [isSavingDate, setIsSavingDate] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // 予約日時の編集用state
   const scheduledDate = new Date(post.scheduled_at);
   const [editDate, setEditDate] = useState(formatDate(scheduledDate));
   const [editTime, setEditTime] = useState(
     scheduledDate.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })
   );
-  const [editText, setEditText] = useState(post.drafts?.text ?? "");
 
-  const handleSave = async () => {
-    setIsSaving(true);
+  const meta = post.drafts?.metadata as Record<string, unknown> | null;
+  const threadPosts = Array.isArray(meta?.thread_posts)
+    ? (meta.thread_posts as string[])
+    : null;
+  const isThread = threadPosts !== null && threadPosts.length >= 2;
+
+  const dateChanged =
+    editDate !== formatDate(scheduledDate) ||
+    editTime !==
+      scheduledDate.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" });
+
+  const handleSaveDate = async () => {
+    setIsSavingDate(true);
     try {
       const newScheduledAt = new Date(`${editDate}T${editTime}:00`);
       if (newScheduledAt <= new Date()) {
         toast.error("予約日時は現在より未来を指定してください");
-        setIsSaving(false);
+        setIsSavingDate(false);
         return;
       }
 
       const res = await fetch(`/api/scheduled-posts/${post.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          scheduled_at: newScheduledAt.toISOString(),
-          draft_text: editText !== (post.drafts?.text ?? "") ? editText : undefined,
-        }),
+        body: JSON.stringify({ scheduled_at: newScheduledAt.toISOString() }),
       });
 
       if (!res.ok) {
@@ -426,12 +431,12 @@ function PostDetailContent({
         return;
       }
 
-      toast.success("予約投稿を更新しました");
+      toast.success("予約日時を更新しました");
       onPostChanged();
     } catch {
       toast.error("通信エラーが発生しました");
     } finally {
-      setIsSaving(false);
+      setIsSavingDate(false);
     }
   };
 
@@ -457,35 +462,36 @@ function PostDetailContent({
     }
   };
 
+  const handleEditContent = () => {
+    if (post.draft_id) {
+      onClose();
+      router.push(`/compose?draft=${post.draft_id}`);
+    }
+  };
+
   return (
     <div className="space-y-4">
-      {/* ステータス + 編集ボタン */}
-      <div className="flex items-center justify-between">
+      {/* ステータス + 投稿形式 */}
+      <div className="flex items-center gap-2">
         <Badge className={config.color}>
           <span className="flex items-center gap-1">
             {config.icon}
             {config.label}
           </span>
         </Badge>
-        {isPending && !isEditing && (
-          <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
-            <Pencil className="h-3.5 w-3.5 mr-1" />
-            編集
-          </Button>
-        )}
-        {isPending && isEditing && (
-          <Button variant="ghost" size="sm" onClick={() => setIsEditing(false)}>
-            <X className="h-3.5 w-3.5 mr-1" />
-            キャンセル
-          </Button>
+        {isThread && (
+          <Badge variant="outline" className="text-xs">
+            <MessageSquareText className="h-3 w-3 mr-1" />
+            スレッド ({threadPosts.length}件)
+          </Badge>
         )}
       </div>
 
-      {/* 予約日時 */}
+      {/* 予約日時（pending なら編集可能） */}
       <div>
         <p className="text-sm font-medium text-muted-foreground mb-1">予約日時</p>
-        {isEditing ? (
-          <div className="flex gap-2">
+        {isPending ? (
+          <div className="flex items-end gap-2">
             <Input
               type="date"
               value={editDate}
@@ -498,6 +504,19 @@ function PostDetailContent({
               onChange={(e) => setEditTime(e.target.value)}
               className="w-[120px]"
             />
+            {dateChanged && (
+              <Button
+                size="sm"
+                onClick={handleSaveDate}
+                disabled={isSavingDate}
+              >
+                {isSavingDate ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+              </Button>
+            )}
           </div>
         ) : (
           <p className="text-sm">
@@ -513,24 +532,20 @@ function PostDetailContent({
         )}
       </div>
 
-      {/* 投稿テキスト */}
+      {/* 投稿テキスト（スレッドは各投稿を分けて表示） */}
       <div>
-        <p className="text-sm font-medium text-muted-foreground mb-1">
-          投稿テキスト
-          {isEditing && (
-            <span className="text-xs text-muted-foreground ml-2">
-              {editText.length}/500
-            </span>
-          )}
-        </p>
-        {isEditing ? (
-          <Textarea
-            value={editText}
-            onChange={(e) => setEditText(e.target.value)}
-            rows={5}
-            maxLength={500}
-            className="resize-none"
-          />
+        <p className="text-sm font-medium text-muted-foreground mb-1">投稿テキスト</p>
+        {isThread ? (
+          <div className="space-y-2">
+            {threadPosts.map((text, i) => (
+              <div key={i} className="bg-muted/50 rounded-lg p-3 relative">
+                <span className="absolute top-1.5 right-2 text-[10px] text-muted-foreground">
+                  {i + 1}/{threadPosts.length}
+                </span>
+                <p className="text-sm whitespace-pre-wrap pr-8">{text}</p>
+              </div>
+            ))}
+          </div>
         ) : (
           post.drafts?.text && (
             <div className="bg-muted/50 rounded-lg p-3">
@@ -541,7 +556,7 @@ function PostDetailContent({
       </div>
 
       {/* ハッシュタグ */}
-      {!isEditing && post.drafts?.hashtags && post.drafts.hashtags.length > 0 && (
+      {post.drafts?.hashtags && post.drafts.hashtags.length > 0 && (
         <div>
           <p className="text-sm font-medium text-muted-foreground mb-1">ハッシュタグ</p>
           <div className="flex gap-1 flex-wrap">
@@ -596,18 +611,10 @@ function PostDetailContent({
       {/* アクションボタン（pending時のみ） */}
       {isPending && (
         <div className="flex items-center gap-2 pt-2 border-t">
-          {isEditing ? (
-            <Button onClick={handleSave} disabled={isSaving} className="flex-1">
-              {isSaving ? (
-                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              ) : (
-                <Save className="h-4 w-4 mr-1" />
-              )}
-              保存
-            </Button>
-          ) : (
-            <div className="flex-1" />
-          )}
+          <Button variant="outline" onClick={handleEditContent} className="flex-1">
+            <ExternalLink className="h-4 w-4 mr-1" />
+            内容を編集
+          </Button>
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="destructive" size="sm" disabled={isDeleting}>

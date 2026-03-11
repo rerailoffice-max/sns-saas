@@ -46,17 +46,49 @@ export async function POST(request: NextRequest) {
 
       // SNSアダプターで投稿
       const adapter = getAdapter(account.platform);
-      const result = await adapter.createPost(accessToken, {
-        text: post.drafts.text,
-        media_urls: post.drafts.media_urls ?? [],
-      });
+      const draftMeta = post.drafts.metadata as Record<string, unknown> | null;
+      const threadPosts =
+        Array.isArray(draftMeta?.thread_posts) && (draftMeta.thread_posts as string[]).length >= 2
+          ? (draftMeta.thread_posts as string[])
+          : null;
+
+      let firstPostId: string;
+
+      if (threadPosts) {
+        // スレッド投稿: reply_to チェーンで順次投稿
+        let replyToId: string | undefined;
+        const threadResults: Array<{ platform_post_id: string }> = [];
+
+        for (let i = 0; i < threadPosts.length; i++) {
+          const result = await adapter.createPost(accessToken, {
+            text: threadPosts[i],
+            media_urls: i === 0 ? (post.drafts.media_urls ?? []) : [],
+            reply_to: replyToId,
+          });
+          threadResults.push(result);
+          replyToId = result.platform_post_id;
+
+          if (i < threadPosts.length - 1) {
+            await new Promise((r) => setTimeout(r, 3000));
+          }
+        }
+
+        firstPostId = threadResults[0].platform_post_id;
+      } else {
+        // 単一投稿
+        const result = await adapter.createPost(accessToken, {
+          text: post.drafts.text,
+          media_urls: post.drafts.media_urls ?? [],
+        });
+        firstPostId = result.platform_post_id;
+      }
 
       // 成功: ステータス更新
       await adminClient
         .from("scheduled_posts")
         .update({
           status: "published",
-          platform_post_id: result.platform_post_id,
+          platform_post_id: firstPostId,
           published_at: new Date().toISOString(),
         })
         .eq("id", post.id);
