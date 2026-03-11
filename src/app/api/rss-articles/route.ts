@@ -100,5 +100,34 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // 未翻訳の記事がある場合、その場で翻訳して再取得
+  const hasUntranslated = articles?.some((a) => !a.title_ja);
+  if (hasUntranslated && process.env.ANTHROPIC_API_KEY) {
+    try {
+      const admin = createAdminClient();
+      const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+      await translateUntranslatedArticles(admin, user.id, anthropic);
+
+      // 翻訳済みのデータで再取得
+      let refreshQuery = supabase
+        .from("rss_articles")
+        .select("*", { count: "exact" })
+        .eq("profile_id", user.id)
+        .order("published_at", { ascending: false, nullsFirst: false })
+        .range(offset, offset + limit - 1);
+
+      if (isUsedFilter === "false") {
+        refreshQuery = refreshQuery.eq("is_used", false);
+      } else if (isUsedFilter === "true") {
+        refreshQuery = refreshQuery.eq("is_used", true);
+      }
+
+      const { data: refreshed, count: refreshedCount } = await refreshQuery;
+      return NextResponse.json({ data: refreshed ?? [], total: refreshedCount ?? 0 });
+    } catch {
+      // 翻訳失敗時は英語のまま返す
+    }
+  }
+
   return NextResponse.json({ data: articles ?? [], total: count ?? 0 });
 }
