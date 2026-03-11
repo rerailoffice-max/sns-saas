@@ -5,6 +5,8 @@
  */
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { quickSync } from "@/lib/sync/quick-sync";
+import { SyncButton } from "@/components/dashboard/sync-button";
 import {
   Card,
   CardContent,
@@ -71,10 +73,11 @@ export default async function AnalyticsPage() {
     redirect("/login");
   }
 
-  // 接続済みアカウント取得
+  await quickSync(user.id).catch(() => {});
+
   const { data: accounts } = await supabase
     .from("social_accounts")
-    .select("id")
+    .select("id, last_synced_at")
     .eq("profile_id", user.id)
     .eq("is_active", true);
 
@@ -172,9 +175,14 @@ export default async function AnalyticsPage() {
     }
   }
 
+  const lastSyncedAt = accounts?.[0]?.last_synced_at ?? null;
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">投稿分析</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">投稿分析</h1>
+        <SyncButton lastSyncedAt={lastSyncedAt} />
+      </div>
 
       {!hasAccounts && (
         <Card>

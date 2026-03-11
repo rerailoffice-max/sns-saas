@@ -7,6 +7,7 @@
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { quickSync } from "@/lib/sync/quick-sync";
 import {
   Card,
   CardContent,
@@ -22,6 +23,7 @@ import { EngagementChart } from "@/components/dashboard/engagement-chart";
 import { RecentPosts } from "@/components/dashboard/recent-posts";
 import { PeriodFilter } from "@/components/dashboard/period-filter";
 import { RSSNewsFeed } from "@/components/dashboard/rss-news-feed";
+import { SyncButton } from "@/components/dashboard/sync-button";
 
 // モックデータ（Supabase未接続時用）
 const MOCK_FOLLOWERS = Array.from({ length: 30 }, (_, i) => ({
@@ -94,6 +96,9 @@ export default async function DashboardPage({
     redirect("/login");
   }
 
+  // ページ表示時に最新データを自動同期（5分以内は自動スキップ）
+  await quickSync(user.id).catch(() => {});
+
   const params = await searchParams;
   const periodDays = parseInt(params?.period ?? "30", 10);
   const startDate = new Date();
@@ -103,7 +108,7 @@ export default async function DashboardPage({
   // 接続済みアカウント取得
   const { data: accounts } = await supabase
     .from("social_accounts")
-    .select("id, platform, username, display_name")
+    .select("id, platform, username, display_name, last_synced_at")
     .eq("profile_id", user.id)
     .eq("is_active", true);
 
@@ -248,6 +253,9 @@ export default async function DashboardPage({
     }
   }
 
+  // 最終同期時刻を取得
+  const lastSyncedAt = accounts?.[0]?.last_synced_at ?? null;
+
   // 平均エンゲージメント
   const avgEngagement =
     postCount > 0
@@ -281,6 +289,7 @@ export default async function DashboardPage({
       hasAccounts={hasAccounts}
       accounts={accounts ?? []}
       optimalTimings={optimalTimings}
+      lastSyncedAt={lastSyncedAt}
     />
   );
 }
@@ -299,6 +308,7 @@ function DashboardView({
   hasAccounts,
   accounts = [],
   optimalTimings = [],
+  lastSyncedAt,
 }: {
   followerData: Array<{ date: string; count: number }>;
   engagementData: Array<{
@@ -323,16 +333,20 @@ function DashboardView({
   periodDays: number;
   accountCount: number;
   hasAccounts: boolean;
-  accounts?: Array<{ id: string; platform: string; username: string; display_name: string | null }>;
+  accounts?: Array<{ id: string; platform: string; username: string; display_name: string | null; last_synced_at?: string | null }>;
   optimalTimings?: TimingRecommendation[];
+  lastSyncedAt?: string | null;
 }) {
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <h1 className="text-2xl font-bold">ダッシュボード</h1>
-        <Suspense fallback={null}>
-          <PeriodFilter />
-        </Suspense>
+        <div className="flex items-center gap-2">
+          <SyncButton lastSyncedAt={lastSyncedAt} />
+          <Suspense fallback={null}>
+            <PeriodFilter />
+          </Suspense>
+        </div>
       </div>
 
       {/* サマリーカード */}

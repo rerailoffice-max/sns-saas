@@ -4,6 +4,8 @@
  */
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { quickSync } from "@/lib/sync/quick-sync";
+import { SyncButton } from "@/components/dashboard/sync-button";
 import {
   Card,
   CardContent,
@@ -51,10 +53,11 @@ export default async function BuzzPage() {
 
   if (!user) redirect("/login");
 
-  // 接続アカウント取得
+  await quickSync(user.id).catch(() => {});
+
   const { data: accounts } = await supabase
     .from("social_accounts")
-    .select("id")
+    .select("id, last_synced_at")
     .eq("profile_id", user.id)
     .eq("is_active", true);
 
@@ -73,6 +76,7 @@ export default async function BuzzPage() {
     .gte("posted_at", startDate.toISOString())
     .order("posted_at", { ascending: false });
 
+  const lastSyncedAt = accounts?.[0]?.last_synced_at ?? null;
   const posts = insights ?? [];
   const hasData = posts.length > 0;
 
@@ -146,9 +150,12 @@ export default async function BuzzPage() {
   return (
     <div className="space-y-6">
       {/* ヘッダー */}
-      <div className="flex items-center gap-2">
-        <Flame className="h-6 w-6 text-orange-500" />
-        <h1 className="text-2xl font-bold">バズツール</h1>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Flame className="h-6 w-6 text-orange-500" />
+          <h1 className="text-2xl font-bold">バズツール</h1>
+        </div>
+        <SyncButton lastSyncedAt={lastSyncedAt} />
       </div>
 
       {!hasData && (
