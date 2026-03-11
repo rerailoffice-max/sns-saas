@@ -1,25 +1,17 @@
 "use client";
 
-/**
- * 予約管理ページのクライアントコンポーネント
- * CalendarView と ScheduleDialog を統合
- * 月移動時はURLのsearchParamsを更新
- */
-
 import { useState, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarView, type ScheduledPostWithDetails } from "@/components/schedule/calendar-view";
 import { ScheduleDialog } from "@/components/schedule/schedule-dialog";
+import { Button } from "@/components/ui/button";
+import { CalendarPlus } from "lucide-react";
 import type { Draft, SocialAccount } from "@/types/database";
 
 interface SchedulePageClientProps {
-  /** 予約投稿一覧（下書き情報付き） */
   scheduledPosts: ScheduledPostWithDetails[];
-  /** 利用可能な下書き一覧 */
   drafts: Draft[];
-  /** 接続済みSNSアカウント一覧 */
   accounts: SocialAccount[];
-  /** 現在の表示月（YYYY-MM形式） */
   currentMonth: string;
 }
 
@@ -32,11 +24,9 @@ export function SchedulePageClient({
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // 新規予約ダイアログの状態
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | undefined>(undefined);
 
-  // 月移動ハンドラ（searchParamsを更新してServer Componentを再レンダリング）
   const handleMonthChange = useCallback(
     (month: string) => {
       const params = new URLSearchParams(searchParams.toString());
@@ -46,19 +36,30 @@ export function SchedulePageClient({
     [router, searchParams]
   );
 
-  // 日付クリック → 新規予約ダイアログを表示
   const handleDateClick = useCallback((date: string) => {
     setSelectedDate(date);
     setDialogOpen(true);
   }, []);
 
-  // 予約作成成功 → ページをリロード
   const handleCreated = useCallback(() => {
     router.refresh();
   }, [router]);
 
+  const handleNewSchedule = useCallback(() => {
+    setSelectedDate(undefined);
+    setDialogOpen(true);
+  }, []);
+
   return (
     <>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">予約管理</h1>
+        <Button onClick={handleNewSchedule}>
+          <CalendarPlus className="mr-2 h-4 w-4" />
+          新規予約
+        </Button>
+      </div>
+
       <CalendarView
         scheduledPosts={scheduledPosts}
         currentMonth={currentMonth}

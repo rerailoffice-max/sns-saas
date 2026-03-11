@@ -19,7 +19,10 @@ import { EngagementScore } from "./engagement-score";
 import { AiAssistButton } from "./ai-assist-button";
 import { HashtagSuggest } from "./hashtag-suggest";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Save, Send, Loader2, AlertCircle, X, Plus, ImagePlus, Share2 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Save, Send, Loader2, AlertCircle, X, Plus, ImagePlus, Share2, CalendarClock } from "lucide-react";
 import { toast } from "sonner";
 import type { HashtagStats } from "@/lib/hashtag-recommend";
 
@@ -70,6 +73,16 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
   );
   const [isSaving, setIsSaving] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isScheduling, setIsScheduling] = useState(false);
+  const [schedulePopoverOpen, setSchedulePopoverOpen] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState(() => {
+    const d = new Date();
+    d.setHours(d.getHours() + 1);
+    d.setMinutes(0, 0, 0);
+    const offset = d.getTimezoneOffset();
+    const local = new Date(d.getTime() - offset * 60 * 1000);
+    return local.toISOString().slice(0, 16);
+  });
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -307,6 +320,77 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
       setError(err instanceof Error ? err.message : "投稿に失敗しました");
     } finally {
       setIsPublishing(false);
+    }
+  };
+
+  /** 予約投稿 */
+  const handleSchedule = async () => {
+    if (!canSubmit || !scheduleDate) return;
+    setIsScheduling(true);
+    setError(null);
+
+    try {
+      // 1. 下書き保存（自動）
+      const draftPayload = threadMode
+        ? {
+            account_id: selectedAccountId,
+            text: threadPosts.join("\n\n"),
+            hashtags,
+            source: "manual" as const,
+            media_urls: mediaUrls,
+            metadata: { thread_posts: threadPosts, thread_mode: true },
+          }
+        : {
+            account_id: selectedAccountId,
+            text,
+            hashtags,
+            source: "manual" as const,
+            media_urls: mediaUrls,
+            metadata: {},
+          };
+
+      const draftUrl = draftId ? `/api/drafts/${draftId}` : "/api/drafts";
+      const draftMethod = draftId ? "PUT" : "POST";
+      const draftRes = await fetch(draftUrl, {
+        method: draftMethod,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(draftPayload),
+      });
+
+      if (!draftRes.ok) {
+        const data = await draftRes.json();
+        throw new Error(data.error ?? "下書き保存に失敗しました");
+      }
+
+      const draftData = await draftRes.json();
+      const savedDraftId = draftId ?? draftData.draft?.id;
+      if (!savedDraftId) throw new Error("下書きIDが取得できませんでした");
+      if (!draftId) setDraftId(savedDraftId);
+
+      // 2. 予約投稿作成
+      const utcDate = new Date(scheduleDate).toISOString();
+      const scheduleRes = await fetch("/api/scheduled-posts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          draft_id: savedDraftId,
+          account_id: selectedAccountId,
+          scheduled_at: utcDate,
+        }),
+      });
+
+      if (!scheduleRes.ok) {
+        const data = await scheduleRes.json().catch(() => ({}));
+        throw new Error(data.error ?? "予約に失敗しました");
+      }
+
+      toast.success("予約投稿を設定しました");
+      setSchedulePopoverOpen(false);
+      router.push("/schedule");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "予約に失敗しました");
+    } finally {
+      setIsScheduling(false);
     }
   };
 
@@ -616,11 +700,11 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
             )}
 
             {/* アクションボタン */}
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Button
                 variant="outline"
                 onClick={handleSaveDraft}
-                disabled={!canSubmit || isSaving || isPublishing}
+                disabled={!canSubmit || isSaving || isPublishing || isScheduling}
               >
                 {isSaving ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -629,9 +713,50 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
                 )}
                 下書き保存
               </Button>
+
+              <Popover open={schedulePopoverOpen} onOpenChange={setSchedulePopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    disabled={!canSubmit || isSaving || isPublishing || isScheduling}
+                  >
+                    {isScheduling ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <CalendarClock className="mr-2 h-4 w-4" />
+                    )}
+                    予約投稿
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-72 p-4" align="start">
+                  <div className="space-y-3">
+                    <Label htmlFor="schedule-at">投稿日時</Label>
+                    <Input
+                      id="schedule-at"
+                      type="datetime-local"
+                      value={scheduleDate}
+                      onChange={(e) => setScheduleDate(e.target.value)}
+                      min={new Date().toISOString().slice(0, 16)}
+                    />
+                    <Button
+                      className="w-full"
+                      onClick={handleSchedule}
+                      disabled={isScheduling || !scheduleDate}
+                    >
+                      {isScheduling ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <CalendarClock className="mr-2 h-4 w-4" />
+                      )}
+                      この日時で予約する
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+
               <Button
                 onClick={handlePublish}
-                disabled={!canSubmit || isSaving || isPublishing}
+                disabled={!canSubmit || isSaving || isPublishing || isScheduling}
               >
                 {isPublishing ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

@@ -55,13 +55,9 @@ export default async function SchedulePage({
   const currentMonth =
     rawMonth && isValidMonth(rawMonth) ? rawMonth : getCurrentMonth();
 
-  // デモモード: Supabase未設定時は空データで表示
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">予約管理</h1>
-        </div>
         <SchedulePageClient
           scheduledPosts={[]}
           drafts={[]}
@@ -123,10 +119,6 @@ export default async function SchedulePage({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">予約管理</h1>
-      </div>
-
       <SchedulePageClient
         scheduledPosts={scheduledPosts}
         drafts={drafts}
