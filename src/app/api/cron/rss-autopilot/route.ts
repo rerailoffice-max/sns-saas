@@ -10,6 +10,7 @@
  */
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllFeeds, DEFAULT_RSS_FEEDS, type RSSFeed } from "@/lib/rss/parser";
+import { translateUntranslatedArticles } from "@/lib/rss/translate";
 import { buildPostPrompt } from "@/lib/prompt-engine";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
@@ -96,6 +97,9 @@ async function processUser(
     );
     if (!error) stats.articles_saved++;
   }
+
+  // 3.5. 未翻訳の記事を日本語に一括翻訳
+  await translateUntranslatedArticles(admin, setting.profile_id, anthropic);
 
   // 4. 未使用記事を取得
   const { data: unusedArticles } = await admin

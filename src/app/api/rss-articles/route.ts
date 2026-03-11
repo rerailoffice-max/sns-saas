@@ -8,7 +8,11 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllFeeds, DEFAULT_RSS_FEEDS } from "@/lib/rss/parser";
+import { translateUntranslatedArticles } from "@/lib/rss/translate";
+import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
+
+export const maxDuration = 60;
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -64,6 +68,12 @@ export async function GET(request: NextRequest) {
           },
           { onConflict: "link", ignoreDuplicates: true }
         );
+      }
+
+      // 翻訳
+      if (process.env.ANTHROPIC_API_KEY) {
+        const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+        await translateUntranslatedArticles(admin, user.id, anthropic);
       }
 
       // 再取得

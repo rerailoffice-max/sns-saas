@@ -402,93 +402,101 @@ function DashboardView({
         </Card>
       </div>
 
-      {/* 最新AIニュース */}
-      <RSSNewsFeed />
+      {/* メインコンテンツ + RSSサイドバー */}
+      <div className="grid gap-6 xl:grid-cols-[1fr_340px]">
+        {/* 左カラム: チャート・投稿・おすすめ時間 */}
+        <div className="space-y-4 min-w-0">
+          {/* チャートエリア */}
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>フォロワー推移</CardTitle>
+                <CardDescription>
+                  直近{periodDays}日間のフォロワー数変化
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="h-64">
+                <FollowersChart data={followerData} />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>エンゲージメント</CardTitle>
+                <CardDescription>
+                  いいね・リプライ・リポストの推移
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="h-64">
+                <EngagementChart data={engagementData} />
+              </CardContent>
+            </Card>
+          </div>
 
-      {/* チャートエリア */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>フォロワー推移</CardTitle>
-            <CardDescription>
-              直近{periodDays}日間のフォロワー数変化
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="h-64">
-            <FollowersChart data={followerData} />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>エンゲージメント</CardTitle>
-            <CardDescription>
-              いいね・リプライ・リポストの推移
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="h-64">
-            <EngagementChart data={engagementData} />
-          </CardContent>
-        </Card>
-      </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {/* 最近の投稿 */}
+            <Card>
+              <CardHeader>
+                <CardTitle>最近の投稿</CardTitle>
+                <CardDescription>直近の投稿とそのパフォーマンス</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <RecentPosts posts={recentPosts} />
+              </CardContent>
+            </Card>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        {/* 最近の投稿 */}
-        <Card>
-          <CardHeader>
-            <CardTitle>最近の投稿</CardTitle>
-            <CardDescription>直近の投稿とそのパフォーマンス</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <RecentPosts posts={recentPosts} />
-          </CardContent>
-        </Card>
-
-        {/* 🎯 おすすめ投稿時間 */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Target className="h-5 w-5 text-blue-500" />
-              おすすめ投稿時間
-            </CardTitle>
-            <CardDescription>
-              過去データから算出した最適な投稿タイミング
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {optimalTimings.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                データが蓄積されるとレコメンドが表示されます
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {optimalTimings.map((timing, index) => (
-                  <div
-                    key={`${timing.dayIndex}-${timing.hour}`}
-                    className="flex items-center justify-between rounded-lg border p-3"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="text-lg font-bold text-primary">
-                        {index + 1}
-                      </span>
-                      <div>
-                        <p className="font-medium">
-                          {timing.dayName}曜日 {timing.hour}:00
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {timing.postCount}件のデータに基づく
-                        </p>
+            {/* おすすめ投稿時間 */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Target className="h-5 w-5 text-blue-500" />
+                  おすすめ投稿時間
+                </CardTitle>
+                <CardDescription>
+                  過去データから算出した最適な投稿タイミング
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {optimalTimings.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    データが蓄積されるとレコメンドが表示されます
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {optimalTimings.map((timing, index) => (
+                      <div
+                        key={`${timing.dayIndex}-${timing.hour}`}
+                        className="flex items-center justify-between rounded-lg border p-3"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-lg font-bold text-primary">
+                            {index + 1}
+                          </span>
+                          <div>
+                            <p className="font-medium">
+                              {timing.dayName}曜日 {timing.hour}:00
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {timing.postCount}件のデータに基づく
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold">{timing.avgEngagement}</p>
+                          <p className="text-xs text-muted-foreground">平均反応</p>
+                        </div>
                       </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-bold">{timing.avgEngagement}</p>
-                      <p className="text-xs text-muted-foreground">平均反応</p>
-                    </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        {/* 右カラム: RSSニュースサイドバー */}
+        <div className="xl:sticky xl:top-4 xl:self-start">
+          <RSSNewsFeed />
+        </div>
       </div>
     </div>
   );

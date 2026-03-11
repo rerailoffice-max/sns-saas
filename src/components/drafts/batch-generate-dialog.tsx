@@ -28,8 +28,10 @@ interface SuggestedTheme {
 interface RSSArticle {
   id: string;
   title: string;
+  title_ja: string | null;
   link: string;
   description: string | null;
+  description_ja: string | null;
   source: string;
   published_at: string | null;
   is_used: boolean;
@@ -455,7 +457,7 @@ export function BatchGenerateDialog({ accountId }: BatchGenerateDialogProps) {
                         className="mt-0.5"
                       />
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium line-clamp-2">{article.title}</p>
+                        <p className="text-sm font-medium line-clamp-2">{article.title_ja || article.title}</p>
                         <div className="flex items-center gap-2 mt-1">
                           <Badge variant="outline" className="text-[10px] px-1.5 py-0">
                             {article.source}
