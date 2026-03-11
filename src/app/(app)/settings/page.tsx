@@ -1,11 +1,12 @@
 /**
  * プロフィール設定ページ（Server Component）
- * 表示名・メール通知設定・ライティングスタイル設定の管理
+ * 表示名・メール通知設定・ライティングスタイル設定・自動投稿設定の管理
  */
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { ProfileSettingsClient } from "@/components/settings/profile-settings-client";
 import { WritingStyleSettings } from "@/components/settings/writing-style-settings";
+import { AutoPostSettings } from "@/components/settings/auto-post-settings";
 
 export default async function SettingsPage() {
   // デモモード: Supabase未設定時はモックデータで表示
@@ -45,16 +46,22 @@ export default async function SettingsPage() {
     .eq("id", user.id)
     .single();
 
-  // 接続済みのSNSアカウント情報を取得（ライティング分析用）
+  // 接続済みのSNSアカウント情報を取得
   const { data: socialAccounts } = await supabase
     .from("social_accounts")
-    .select("id, writing_profile")
+    .select("id, platform, username, writing_profile")
     .eq("profile_id", user.id)
-    .eq("is_active", true)
-    .limit(1);
+    .eq("is_active", true);
 
-  const accountId = socialAccounts?.[0]?.id ?? null;
-  const hasWritingProfile = !!socialAccounts?.[0]?.writing_profile;
+  const firstAccount = socialAccounts?.[0];
+  const accountId = firstAccount?.id ?? null;
+  const hasWritingProfile = !!firstAccount?.writing_profile;
+
+  const accountsForAutoPost = (socialAccounts ?? []).map((a) => ({
+    id: a.id,
+    platform: a.platform as string,
+    username: a.username as string,
+  }));
 
   return (
     <div className="space-y-6">
@@ -72,6 +79,7 @@ export default async function SettingsPage() {
         hasWritingProfile={hasWritingProfile}
         accountId={accountId}
       />
+      <AutoPostSettings accounts={accountsForAutoPost} />
     </div>
   );
 }
