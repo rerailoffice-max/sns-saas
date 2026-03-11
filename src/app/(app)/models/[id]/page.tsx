@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/card";
 import { AnalysisReport } from "@/components/models/analysis-report";
 import { StyleComparison } from "@/components/models/style-comparison";
+import { ImportResearchButton } from "@/components/models/import-research-button";
 import type { ModelAccount, ModelPost, WritingProfile, AnalysisResult } from "@/types/database";
 
 /** プラットフォーム表示名 */
@@ -224,17 +225,22 @@ export default async function ModelDetailPage({
                 {platformLabels[typedModel.platform] ?? typedModel.platform}
               </CardDescription>
             </div>
-            <Badge
-              variant={
-                typedModel.status === "active" ? "secondary" : "outline"
-              }
-            >
-              {typedModel.status === "active"
-                ? "有効"
-                : typedModel.status === "paused"
-                  ? "一時停止"
-                  : "削除済み"}
-            </Badge>
+            <div className="flex items-center gap-2">
+              {typedPosts.length === 0 && (
+                <ImportResearchButton modelId={id} />
+              )}
+              <Badge
+                variant={
+                  typedModel.status === "active" ? "secondary" : "outline"
+                }
+              >
+                {typedModel.status === "active"
+                  ? "有効"
+                  : typedModel.status === "paused"
+                    ? "一時停止"
+                    : "削除済み"}
+              </Badge>
+            </div>
           </div>
         </CardHeader>
       </Card>

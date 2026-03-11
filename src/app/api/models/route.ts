@@ -108,9 +108,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "登録に失敗しました" }, { status: 500 });
   }
 
-  // 登録成功後: バックグラウンドでプロフィール・投稿を自動取得→AI分析
-  // X はAPI自動取得に非対応のため、手動インポート（upload-analysis.js）を使用
-  if (model && parsed.data.platform === "threads") {
+  // 登録成功後: バックグラウンドでデータ取得を試みる
+  if (model) {
     const cookies = request.headers.get("cookie") ?? "";
     fetchModelDataBackground(user.id, model.id, parsed.data.platform, parsed.data.username, cookies);
   }
@@ -119,8 +118,9 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * バックグラウンドでモデルアカウントのプロフィール・投稿を取得
- * fire-and-forget で実行（レスポンスをブロックしない）
+ * バックグラウンドでモデルアカウントのデータを取得
+ * 1. Threads APIで取得を試みる（Threadsのみ）
+ * 2. 失敗またはX → research/フォルダの研究データをインポート
  */
 async function fetchModelDataBackground(
   profileId: string,
@@ -131,63 +131,80 @@ async function fetchModelDataBackground(
 ) {
   try {
     const admin = createAdminClient();
+    let apiSuccess = false;
 
-    // ユーザーの接続済みアカウントからアクセストークンを取得
-    const { data: socialAccount } = await admin
-      .from("social_accounts")
-      .select("access_token_enc")
-      .eq("profile_id", profileId)
-      .eq("platform", platform)
-      .eq("is_active", true)
-      .single();
+    // Threads: API経由で取得を試みる
+    if (platform === "threads") {
+      try {
+        const { data: socialAccount } = await admin
+          .from("social_accounts")
+          .select("access_token_enc")
+          .eq("profile_id", profileId)
+          .eq("platform", platform)
+          .eq("is_active", true)
+          .single();
 
-    if (!socialAccount?.access_token_enc) return;
+        if (socialAccount?.access_token_enc) {
+          const accessToken = decrypt(socialAccount.access_token_enc);
+          const adapter = new ThreadsAdapter();
 
-    const accessToken = decrypt(socialAccount.access_token_enc);
-    const adapter = new ThreadsAdapter();
+          try {
+            const profile = await adapter.getPublicProfile(username, accessToken);
+            await admin
+              .from("model_accounts")
+              .update({
+                display_name: profile.display_name,
+                avatar_url: profile.avatar_url,
+                platform_user_id: profile.platform_user_id,
+              })
+              .eq("id", modelId);
+          } catch {
+            // プロフィール取得失敗は無視
+          }
 
-    // プロフィール取得 → display_name, avatar_url を更新
-    try {
-      const profile = await adapter.getPublicProfile(username, accessToken);
-      await admin
-        .from("model_accounts")
-        .update({
-          display_name: profile.display_name,
-          avatar_url: profile.avatar_url,
-          platform_user_id: profile.platform_user_id,
-        })
-        .eq("id", modelId);
-    } catch {
-      // プロフィール取得失敗は無視
-    }
+          const threadsResult = await adapter.getPublicThreads(username, accessToken, {
+            limit: 25,
+          });
+          const posts = threadsResult.data ?? [];
 
-    // 公開投稿を取得（最大25件）
-    try {
-      const threadsResult = await adapter.getPublicThreads(username, accessToken, {
-        limit: 25,
-      });
-      const posts = threadsResult.data ?? [];
+          if (posts.length > 0) {
+            const postsToInsert = posts.map((post: ThreadListItem) => ({
+              model_account_id: modelId,
+              platform_post_id: post.id,
+              text: post.text ?? null,
+              hashtags: extractHashtags(post.text ?? ""),
+              media_type: (post.media_type ?? "text").toLowerCase(),
+              posted_at: post.timestamp ?? null,
+            }));
 
-      if (posts.length > 0) {
-        const postsToInsert = posts.map((post: ThreadListItem) => ({
-          model_account_id: modelId,
-          platform_post_id: post.id,
-          text: post.text ?? null,
-          hashtags: extractHashtags(post.text ?? ""),
-          media_type: (post.media_type ?? "text").toLowerCase(),
-          posted_at: post.timestamp ?? null,
-        }));
-
-        await admin.from("model_posts").upsert(postsToInsert, {
-          onConflict: "model_account_id,platform_post_id",
-          ignoreDuplicates: true,
-        });
+            await admin.from("model_posts").upsert(postsToInsert, {
+              onConflict: "model_account_id,platform_post_id",
+              ignoreDuplicates: true,
+            });
+            apiSuccess = true;
+          }
+        }
+      } catch {
+        // API取得失敗 → 研究データにフォールバック
       }
-    } catch {
-      // 投稿取得失敗は無視
     }
 
-    // 投稿取得後: 自動AI分析を実行（失敗はサイレント）
+    // API取得失敗 or X → 研究データからインポート
+    if (!apiSuccess) {
+      try {
+        const baseUrl =
+          process.env.NEXT_PUBLIC_APP_URL ||
+          (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+        await fetch(`${baseUrl}/api/models/${modelId}/import-research`, {
+          method: "POST",
+          headers: { cookie: cookies },
+        });
+      } catch {
+        // 研究データインポート失敗もサイレント
+      }
+    }
+
+    // データ取得後: 自動AI分析を実行
     try {
       const baseUrl =
         process.env.NEXT_PUBLIC_APP_URL ||
@@ -197,7 +214,7 @@ async function fetchModelDataBackground(
         headers: { cookie: cookies },
       });
     } catch {
-      // 自動分析失敗はサイレント — ユーザーが手動で実行可能
+      // 自動分析失敗はサイレント
     }
   } catch (err) {
     console.error("モデルデータ自動取得エラー:", err);
