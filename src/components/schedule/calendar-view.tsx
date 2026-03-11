@@ -5,14 +5,17 @@
  * - 月表示カレンダー（自前実装）
  * - 各日付セルに予約投稿のドット/バッジ表示
  * - 日付クリックで新規予約ダイアログ表示
- * - 投稿クリックで詳細表示
+ * - 投稿クリックで詳細表示（編集・削除対応）
  * - ステータス別色分け
  */
 
 import { useState, useMemo, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -20,7 +23,19 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { ChevronLeft, ChevronRight, Clock, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { ChevronLeft, ChevronRight, Clock, AlertCircle, CheckCircle2, Loader2, Pencil, Trash2, Save, X } from "lucide-react";
+import { toast } from "sonner";
 import type { ScheduledPost, Draft, SocialAccount, ScheduledPostStatus } from "@/types/database";
 
 // ============================================================
@@ -42,6 +57,8 @@ interface CalendarViewProps {
   onMonthChange: (month: string) => void;
   /** 日付クリック時のコールバック（新規予約ダイアログ表示） */
   onDateClick: (date: string) => void;
+  /** 予約投稿が更新/削除された時のリフレッシュ用コールバック */
+  onPostChanged?: () => void;
 }
 
 // ============================================================
@@ -147,8 +164,9 @@ export function CalendarView({
   currentMonth,
   onMonthChange,
   onDateClick,
+  onPostChanged,
 }: CalendarViewProps) {
-  // 投稿詳細ダイアログの状態
+  const router = useRouter();
   const [selectedPost, setSelectedPost] = useState<ScheduledPostWithDetails | null>(null);
 
   // 現在の表示月
@@ -332,10 +350,22 @@ export function CalendarView({
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>予約投稿の詳細</DialogTitle>
-            <DialogDescription>予約投稿の情報を確認できます。</DialogDescription>
+            <DialogDescription>
+              {selectedPost?.status === "pending"
+                ? "予約日時・内容の編集、または予約のキャンセルができます。"
+                : "予約投稿の情報を確認できます。"}
+            </DialogDescription>
           </DialogHeader>
           {selectedPost && (
-            <PostDetailContent post={selectedPost} onClose={() => setSelectedPost(null)} />
+            <PostDetailContent
+              post={selectedPost}
+              onClose={() => setSelectedPost(null)}
+              onPostChanged={() => {
+                setSelectedPost(null);
+                onPostChanged?.();
+                router.refresh();
+              }}
+            />
           )}
         </DialogContent>
       </Dialog>
@@ -344,56 +374,174 @@ export function CalendarView({
 }
 
 // ============================================================
-// 投稿詳細コンテンツ
+// 投稿詳細コンテンツ（編集・削除対応）
 // ============================================================
 
 function PostDetailContent({
   post,
+  onClose,
+  onPostChanged,
 }: {
   post: ScheduledPostWithDetails;
   onClose: () => void;
+  onPostChanged: () => void;
 }) {
   const config = STATUS_CONFIG[post.status];
+  const isPending = post.status === "pending";
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // 予約日時の編集用state
+  const scheduledDate = new Date(post.scheduled_at);
+  const [editDate, setEditDate] = useState(formatDate(scheduledDate));
+  const [editTime, setEditTime] = useState(
+    scheduledDate.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })
+  );
+  const [editText, setEditText] = useState(post.drafts?.text ?? "");
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      const newScheduledAt = new Date(`${editDate}T${editTime}:00`);
+      if (newScheduledAt <= new Date()) {
+        toast.error("予約日時は現在より未来を指定してください");
+        setIsSaving(false);
+        return;
+      }
+
+      const res = await fetch(`/api/scheduled-posts/${post.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scheduled_at: newScheduledAt.toISOString(),
+          draft_text: editText !== (post.drafts?.text ?? "") ? editText : undefined,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        toast.error(err.error ?? "更新に失敗しました");
+        return;
+      }
+
+      toast.success("予約投稿を更新しました");
+      onPostChanged();
+    } catch {
+      toast.error("通信エラーが発生しました");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    setIsDeleting(true);
+    try {
+      const res = await fetch(`/api/scheduled-posts/${post.id}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        toast.error(err.error ?? "削除に失敗しました");
+        return;
+      }
+
+      toast.success("予約をキャンセルしました");
+      onPostChanged();
+    } catch {
+      toast.error("通信エラーが発生しました");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
-      {/* ステータス */}
-      <div className="flex items-center gap-2">
+      {/* ステータス + 編集ボタン */}
+      <div className="flex items-center justify-between">
         <Badge className={config.color}>
           <span className="flex items-center gap-1">
             {config.icon}
             {config.label}
           </span>
         </Badge>
+        {isPending && !isEditing && (
+          <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
+            <Pencil className="h-3.5 w-3.5 mr-1" />
+            編集
+          </Button>
+        )}
+        {isPending && isEditing && (
+          <Button variant="ghost" size="sm" onClick={() => setIsEditing(false)}>
+            <X className="h-3.5 w-3.5 mr-1" />
+            キャンセル
+          </Button>
+        )}
       </div>
 
       {/* 予約日時 */}
       <div>
         <p className="text-sm font-medium text-muted-foreground mb-1">予約日時</p>
-        <p className="text-sm">
-          {new Date(post.scheduled_at).toLocaleString("ja-JP", {
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-            weekday: "short",
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </p>
+        {isEditing ? (
+          <div className="flex gap-2">
+            <Input
+              type="date"
+              value={editDate}
+              onChange={(e) => setEditDate(e.target.value)}
+              className="flex-1"
+            />
+            <Input
+              type="time"
+              value={editTime}
+              onChange={(e) => setEditTime(e.target.value)}
+              className="w-[120px]"
+            />
+          </div>
+        ) : (
+          <p className="text-sm">
+            {scheduledDate.toLocaleString("ja-JP", {
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+              weekday: "short",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </p>
+        )}
       </div>
 
       {/* 投稿テキスト */}
-      {post.drafts?.text && (
-        <div>
-          <p className="text-sm font-medium text-muted-foreground mb-1">投稿テキスト</p>
-          <div className="bg-muted/50 rounded-lg p-3">
-            <p className="text-sm whitespace-pre-wrap">{post.drafts.text}</p>
-          </div>
-        </div>
-      )}
+      <div>
+        <p className="text-sm font-medium text-muted-foreground mb-1">
+          投稿テキスト
+          {isEditing && (
+            <span className="text-xs text-muted-foreground ml-2">
+              {editText.length}/500
+            </span>
+          )}
+        </p>
+        {isEditing ? (
+          <Textarea
+            value={editText}
+            onChange={(e) => setEditText(e.target.value)}
+            rows={5}
+            maxLength={500}
+            className="resize-none"
+          />
+        ) : (
+          post.drafts?.text && (
+            <div className="bg-muted/50 rounded-lg p-3">
+              <p className="text-sm whitespace-pre-wrap">{post.drafts.text}</p>
+            </div>
+          )
+        )}
+      </div>
 
       {/* ハッシュタグ */}
-      {post.drafts?.hashtags && post.drafts.hashtags.length > 0 && (
+      {!isEditing && post.drafts?.hashtags && post.drafts.hashtags.length > 0 && (
         <div>
           <p className="text-sm font-medium text-muted-foreground mb-1">ハッシュタグ</p>
           <div className="flex gap-1 flex-wrap">
@@ -442,6 +590,50 @@ function PostDetailContent({
           >
             {post.post_url}
           </a>
+        </div>
+      )}
+
+      {/* アクションボタン（pending時のみ） */}
+      {isPending && (
+        <div className="flex items-center gap-2 pt-2 border-t">
+          {isEditing ? (
+            <Button onClick={handleSave} disabled={isSaving} className="flex-1">
+              {isSaving ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4 mr-1" />
+              )}
+              保存
+            </Button>
+          ) : (
+            <div className="flex-1" />
+          )}
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive" size="sm" disabled={isDeleting}>
+                {isDeleting ? (
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4 mr-1" />
+                )}
+                予約をキャンセル
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>予約をキャンセルしますか？</AlertDialogTitle>
+                <AlertDialogDescription>
+                  この予約投稿を削除します。下書きは保持されます。
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>戻る</AlertDialogCancel>
+                <AlertDialogAction onClick={handleDelete}>
+                  キャンセルする
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       )}
     </div>

@@ -353,6 +353,10 @@ export type ScheduledPostInsert = Omit<
   "id" | "created_at" | "retry_count"
 >;
 
+export type ScheduledPostUpdate = Partial<
+  Pick<ScheduledPost, "scheduled_at" | "account_id" | "status">
+>;
+
 export type ModelAccountInsert = Omit<
   ModelAccount,
   "id" | "created_at" | "updated_at"

@@ -64,6 +64,7 @@ export function SchedulePageClient({
         currentMonth={currentMonth}
         onMonthChange={handleMonthChange}
         onDateClick={handleDateClick}
+        onPostChanged={handleCreated}
       />
 
       <ScheduleDialog
