@@ -1,6 +1,6 @@
 /**
  * RSS自動投稿パイプライン Cronジョブ
- * POST /api/cron/rss-autopilot
+ * GET /api/cron/rss-autopilot (Vercel Cron)
  *
  * 4時間ごとに実行:
  * 1. 有効なユーザーの設定を取得
@@ -27,7 +27,7 @@ interface AutoPostSetting {
   rss_feeds: RSSFeed[] | null;
 }
 
-export async function POST(request: NextRequest) {
+export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "認証エラー" }, { status: 401 });

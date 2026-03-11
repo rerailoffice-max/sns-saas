@@ -1,6 +1,6 @@
 /**
  * インサイト取得Cronジョブ
- * POST /api/cron/fetch-insights
+ * GET /api/cron/fetch-insights (Vercel Cron)
  * 6時間毎: post_insights内の全投稿のインサイトを再取得
  * + 新規投稿の自動発見・取り込み
  */
@@ -10,7 +10,7 @@ import { decrypt } from "@/lib/encryption";
 import { ensureValidToken } from "@/lib/token-refresh";
 import { NextRequest, NextResponse } from "next/server";
 
-export async function POST(request: NextRequest) {
+export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "認証エラー" }, { status: 401 });

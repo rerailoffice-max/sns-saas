@@ -1,6 +1,6 @@
 /**
  * 予約投稿実行Cronジョブ
- * POST /api/cron/execute-posts
+ * GET /api/cron/execute-posts (Vercel Cron)
  * 毎分実行: scheduled_at <= now() のペンディング投稿を処理
  */
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const maxDuration = 120;
 
-export async function POST(request: NextRequest) {
+export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
   if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "認証エラー" }, { status: 401 });
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     .from("scheduled_posts")
     .select("id")
     .eq("status", "processing")
-    .lt("scheduled_at", tenMinutesAgo);
+    .lt("updated_at", tenMinutesAgo);
 
   if (stuckPosts && stuckPosts.length > 0) {
     for (const stuck of stuckPosts) {

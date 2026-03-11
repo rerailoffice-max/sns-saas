@@ -220,15 +220,19 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
         .split("---")
         .map((p) => p.trim())
         .filter(Boolean);
-      if (parts.length > 0) {
+      if (parts.length >= 2) {
         setThreadMode(true);
         setThreadPosts(parts);
         setText("");
       } else {
-        setText(generatedText);
+        setText(parts[0] || generatedText);
       }
     } else {
-      setText(generatedText);
+      if (threadMode) {
+        setThreadPosts([generatedText]);
+      } else {
+        setText(generatedText);
+      }
     }
   };
 
@@ -238,18 +242,21 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
     setIsSaving(true);
     setError(null);
 
-    const payload = threadMode
+    const validDraftThreadPosts = threadPosts.filter((p) => p.trim().length > 0);
+    const useDraftThread = threadMode && validDraftThreadPosts.length >= 2;
+
+    const payload = useDraftThread
       ? {
           account_id: selectedAccountId,
-          text: threadPosts.join("\n\n"),
+          text: validDraftThreadPosts.join("\n\n"),
           hashtags,
           source: "manual" as const,
           media_urls: mediaUrls,
-          metadata: { thread_posts: threadPosts, thread_mode: true },
+          metadata: { thread_posts: validDraftThreadPosts, thread_mode: true },
         }
       : {
           account_id: selectedAccountId,
-          text,
+          text: threadMode && validDraftThreadPosts.length === 1 ? validDraftThreadPosts[0] : text,
           hashtags,
           source: "manual" as const,
           media_urls: mediaUrls,
@@ -294,9 +301,12 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
 
     const detectedMediaType = mediaTypes.includes("video") ? "video" : mediaUrls.length > 1 ? "carousel" : mediaUrls.length === 1 ? "image" : undefined;
 
-    const payload = threadMode
-      ? { account_id: selectedAccountId, thread_posts: threadPosts, media_urls: mediaUrls, media_type: detectedMediaType, cross_post_accounts: crossPostAccounts.length > 0 ? crossPostAccounts : undefined }
-      : { account_id: selectedAccountId, text, hashtags, media_urls: mediaUrls, media_type: detectedMediaType, cross_post_accounts: crossPostAccounts.length > 0 ? crossPostAccounts : undefined };
+    const validThreadPosts = threadPosts.filter((p) => p.trim().length > 0);
+    const useThread = threadMode && validThreadPosts.length >= 2;
+
+    const payload = useThread
+      ? { account_id: selectedAccountId, thread_posts: validThreadPosts, media_urls: mediaUrls, media_type: detectedMediaType, cross_post_accounts: crossPostAccounts.length > 0 ? crossPostAccounts : undefined }
+      : { account_id: selectedAccountId, text: useThread ? validThreadPosts[0] : text, hashtags, media_urls: mediaUrls, media_type: detectedMediaType, cross_post_accounts: crossPostAccounts.length > 0 ? crossPostAccounts : undefined };
 
     try {
       const res = await fetch("/api/posts/publish", {
@@ -331,18 +341,21 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
 
     try {
       // 1. 下書き保存（自動）
-      const draftPayload = threadMode
+      const scheduleThreadPosts = threadPosts.filter((p) => p.trim().length > 0);
+      const useScheduleThread = threadMode && scheduleThreadPosts.length >= 2;
+
+      const draftPayload = useScheduleThread
         ? {
             account_id: selectedAccountId,
-            text: threadPosts.join("\n\n"),
+            text: scheduleThreadPosts.join("\n\n"),
             hashtags,
             source: "manual" as const,
             media_urls: mediaUrls,
-            metadata: { thread_posts: threadPosts, thread_mode: true },
+            metadata: { thread_posts: scheduleThreadPosts, thread_mode: true },
           }
         : {
             account_id: selectedAccountId,
-            text,
+            text: threadMode && scheduleThreadPosts.length === 1 ? scheduleThreadPosts[0] : text,
             hashtags,
             source: "manual" as const,
             media_urls: mediaUrls,

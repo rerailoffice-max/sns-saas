@@ -1,6 +1,6 @@
 /**
  * フォロワー数取得Cronジョブ
- * POST /api/cron/fetch-followers
+ * GET /api/cron/fetch-followers (Vercel Cron)
  * 毎日0時: 全アクティブアカウントのフォロワー数スナップショット
  */
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -8,7 +8,7 @@ import { getAdapter } from "@/lib/adapters/factory";
 import { decrypt } from "@/lib/encryption";
 import { NextRequest, NextResponse } from "next/server";
 
-export async function POST(request: NextRequest) {
+export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "認証エラー" }, { status: 401 });
