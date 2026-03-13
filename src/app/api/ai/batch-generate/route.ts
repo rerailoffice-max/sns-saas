@@ -5,10 +5,14 @@
  * テーマリストから複数の下書きを一括生成し、draftsテーブルに保存する。
  */
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { buildPostPrompt } from "@/lib/prompt-engine";
+import { fetchUrlContent } from "@/lib/url-fetcher";
+
+export const maxDuration = 120;
 
 const rssArticleSchema = z.object({
   id: z.string(),
@@ -18,6 +22,12 @@ const rssArticleSchema = z.object({
   source: z.string().optional(),
 });
 
+const autoScheduleSchema = z.object({
+  enabled: z.boolean(),
+  interval_hours: z.number().min(1).max(4).default(1),
+  start_at: z.string(),
+});
+
 const requestSchema = z.object({
   themes: z.array(z.string().min(1).max(200)).min(1).max(15).optional(),
   rss_articles: z.array(rssArticleSchema).min(1).max(15).optional(),
@@ -25,6 +35,7 @@ const requestSchema = z.object({
   platform: z.enum(["threads", "x"]).optional().default("threads"),
   selected_models: z.array(z.string()).optional(),
   thread_count: z.number().min(3).max(6).optional().default(4),
+  auto_schedule: autoScheduleSchema.optional(),
 }).refine(
   (data) => (data.themes && data.themes.length > 0) || (data.rss_articles && data.rss_articles.length > 0),
   { message: "themes または rss_articles のどちらかが必要です" }
@@ -57,7 +68,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { themes, rss_articles, account_id, platform, selected_models, thread_count } =
+  const { themes, rss_articles, account_id, platform, selected_models, thread_count, auto_schedule } =
     parsed.data;
 
   const { data: account } = await supabase
@@ -91,30 +102,48 @@ export async function POST(request: NextRequest) {
       rss_article_id?: string;
       source_url?: string;
       rss_source?: string;
+      og_image?: string;
     }
     const drafts: DraftItem[] = [];
 
-    // RSS記事からの生成
+    // RSS記事からの生成（本文取得 + 強化プロンプト）
     if (rss_articles && rss_articles.length > 0) {
       for (const article of rss_articles) {
         try {
+          // 記事本文・OG画像を取得
+          let articleBody = "";
+          let ogImageUrl = "";
+          try {
+            const fetched = await fetchUrlContent(article.link);
+            articleBody = fetched.text?.slice(0, 3000) ?? "";
+            ogImageUrl = fetched.mediaUrls?.[0] ?? "";
+          } catch { /* フェッチ失敗時はdescriptionのみで生成 */ }
+
+          const isEnglish = /^[a-zA-Z0-9\s.,!?'"()\-:;]+$/.test(
+            (article.title ?? "").slice(0, 50)
+          );
+
           const response = await anthropic.messages.create({
             model: "claude-sonnet-4-20250514",
-            max_tokens: 2000,
+            max_tokens: 3000,
             messages: [
               {
                 role: "user",
-                content: `以下のAIニュース記事をもとに、バズりやすいスレッド形式の投稿を生成してください。
+                content: `以下の記事をもとに、バズりやすいスレッド投稿を生成してください。
 
-記事タイトル: ${article.title}
-記事URL: ${article.link}
-記事概要: ${article.description ?? ""}
-ソース: ${article.source ?? ""}
+## 元記事情報
+タイトル: ${article.title}
+URL: ${article.link}
+概要: ${article.description ?? "なし"}
+ソース: ${article.source ?? "不明"}
+${articleBody ? `\n## 記事本文（抜粋）\n${articleBody}` : ""}
 
-重要ルール:
-- 投稿1にはこの記事のURL（${article.link}）を必ず含めてください
-- ニュースの要点を分かりやすく日本語で解説してください
-- JSON文字列配列で返してください`,
+## 重要ルール
+1. **投稿1の冒頭**にURLを配置してください${isEnglish ? `。ただし元記事が英語の場合は、同じニュースの日本語記事URL（ITmedia, GIGAZINE, TechCrunch Japan, CNET Japan, Impress Watch等）を代わりに使ってください。日本語記事が見つからない場合のみ元の英語URLを使用` : ""}
+2. 元記事の情報だけで終わらせず、あなたの知識から**関連する最新動向・背景・具体的な数字・業界への影響**を補完し、元記事より有益で情報密度の高い投稿にしてください
+3. 投稿2以降は詳細解説（400字以上推奨）。具体例・比較・今後の展望を盛り込む
+4. 日本語で、分かりやすく解説
+5. JSON文字列配列で返してください（例: ["投稿1", "投稿2", ...]）`,
               },
             ],
             system: systemPrompt,
@@ -131,6 +160,7 @@ export async function POST(request: NextRequest) {
               rss_article_id: article.id,
               source_url: article.link,
               rss_source: article.source,
+              og_image: ogImageUrl || undefined,
             });
           }
         } catch {
@@ -182,6 +212,9 @@ export async function POST(request: NextRequest) {
         metadata.rss_source = draft.rss_source;
       }
 
+      const mediaUrls: string[] = [];
+      if (draft.og_image) mediaUrls.push(draft.og_image);
+
       const { data, error } = await supabase
         .from("drafts")
         .insert({
@@ -189,7 +222,7 @@ export async function POST(request: NextRequest) {
           account_id,
           text: draft.thread_posts[0],
           hashtags: [],
-          media_urls: [],
+          media_urls: mediaUrls,
           source: "ai",
           metadata,
           status: "draft",
@@ -216,10 +249,39 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 自動予約: 生成した下書きを間隔を空けてscheduled_postsに登録
+    let scheduledCount = 0;
+    if (auto_schedule?.enabled && savedDrafts.length > 0) {
+      const adminClient = createAdminClient();
+      const startTime = new Date(auto_schedule.start_at).getTime();
+      const intervalMs = auto_schedule.interval_hours * 60 * 60 * 1000;
+
+      for (let i = 0; i < savedDrafts.length; i++) {
+        const scheduledAt = new Date(startTime + i * intervalMs).toISOString();
+        const { error: schedError } = await adminClient
+          .from("scheduled_posts")
+          .insert({
+            draft_id: savedDrafts[i].id,
+            account_id,
+            scheduled_at: scheduledAt,
+            status: "pending",
+          });
+
+        if (!schedError) {
+          scheduledCount++;
+          await supabase
+            .from("drafts")
+            .update({ status: "scheduled" })
+            .eq("id", savedDrafts[i].id);
+        }
+      }
+    }
+
     return NextResponse.json({
       data: {
         generated: drafts.length,
         saved: savedDrafts.length,
+        scheduled: scheduledCount,
         drafts: savedDrafts,
       },
     });

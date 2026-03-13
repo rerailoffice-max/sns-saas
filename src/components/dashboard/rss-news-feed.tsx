@@ -71,7 +71,7 @@ export function RSSNewsFeed() {
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="flex-1 overflow-y-auto pt-0">
+      <CardContent className="flex-1 overflow-y-auto overflow-x-hidden pt-0">
         {loading && articles.length === 0 ? (
           <div className="flex items-center justify-center py-8">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />

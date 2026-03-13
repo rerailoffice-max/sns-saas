@@ -16,7 +16,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Sparkles, Loader2, Lightbulb, PenLine, Newspaper } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Sparkles, Loader2, Lightbulb, PenLine, Newspaper, CalendarClock } from "lucide-react";
 import { toast } from "sonner";
 
 interface SuggestedTheme {
@@ -60,6 +70,15 @@ export function BatchGenerateDialog({ accountId }: BatchGenerateDialogProps) {
   const [selectedRssIds, setSelectedRssIds] = useState<Set<string>>(new Set());
   const [isLoadingRss, setIsLoadingRss] = useState(false);
   const [rssError, setRssError] = useState<string | null>(null);
+
+  // 自動予約
+  const [autoSchedule, setAutoSchedule] = useState(false);
+  const [scheduleInterval, setScheduleInterval] = useState("1");
+  const [scheduleStartAt, setScheduleStartAt] = useState(() => {
+    const now = new Date();
+    now.setHours(now.getHours() + 1, 0, 0, 0);
+    return now.toISOString().slice(0, 16);
+  });
 
   // 生成
   const [isGenerating, setIsGenerating] = useState(false);
@@ -197,6 +216,14 @@ export function BatchGenerateDialog({ accountId }: BatchGenerateDialogProps) {
         payload.themes = activeThemes.slice(0, 15);
       }
 
+      if (autoSchedule) {
+        payload.auto_schedule = {
+          enabled: true,
+          interval_hours: parseInt(scheduleInterval, 10),
+          start_at: new Date(scheduleStartAt).toISOString(),
+        };
+      }
+
       const res = await fetch("/api/ai/batch-generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -211,9 +238,12 @@ export function BatchGenerateDialog({ accountId }: BatchGenerateDialogProps) {
       const data = await res.json();
       setProgress({
         generated: data.data.saved,
-        total: activeThemes.length,
+        total,
       });
-      toast.success(`${data.data.saved}件の下書きを生成しました`);
+      const scheduledMsg = data.data.scheduled > 0
+        ? `（${data.data.scheduled}件を自動予約）`
+        : "";
+      toast.success(`${data.data.saved}件の下書きを生成しました${scheduledMsg}`);
       setOpen(false);
       resetState();
       router.refresh();
@@ -236,6 +266,8 @@ export function BatchGenerateDialog({ accountId }: BatchGenerateDialogProps) {
     setSelectedRssIds(new Set());
     setRssError(null);
     setTab("auto");
+    setAutoSchedule(false);
+    setScheduleInterval("1");
   };
 
   return (
@@ -492,6 +524,57 @@ export function BatchGenerateDialog({ accountId }: BatchGenerateDialogProps) {
             </div>
           </TabsContent>
         </Tabs>
+
+        {/* 自動予約オプション */}
+        <div className="border rounded-lg p-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <CalendarClock className="h-4 w-4 text-muted-foreground" />
+              <Label htmlFor="auto-schedule" className="text-sm font-medium">
+                自動予約
+              </Label>
+            </div>
+            <Switch
+              id="auto-schedule"
+              checked={autoSchedule}
+              onCheckedChange={setAutoSchedule}
+            />
+          </div>
+          {autoSchedule && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">
+                  投稿間隔
+                </Label>
+                <Select
+                  value={scheduleInterval}
+                  onValueChange={setScheduleInterval}
+                >
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1時間おき</SelectItem>
+                    <SelectItem value="2">2時間おき</SelectItem>
+                    <SelectItem value="3">3時間おき</SelectItem>
+                    <SelectItem value="4">4時間おき</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">
+                  開始時刻
+                </Label>
+                <Input
+                  type="datetime-local"
+                  value={scheduleStartAt}
+                  onChange={(e) => setScheduleStartAt(e.target.value)}
+                  className="h-9"
+                />
+              </div>
+            </div>
+          )}
+        </div>
 
         <DialogFooter className="flex items-center justify-between sm:justify-between">
           <div className="text-xs text-muted-foreground">

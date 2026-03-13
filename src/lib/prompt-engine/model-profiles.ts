@@ -20,6 +20,7 @@ export interface ModelProfile {
   mediaStrategy: string;
   topThemes: string[];
   dataSize: string;
+  buzzExamples: { hook: string; likes: number; chars: number }[];
 }
 
 export const MODEL_PROFILES: Record<string, ModelProfile> = {
@@ -42,6 +43,11 @@ export const MODEL_PROFILES: Record<string, ModelProfile> = {
       "AI活用Tips（ChatGPT/Claude）",
     ],
     dataSize: "1,002件（2026-02〜03）",
+    buzzExamples: [
+      { hook: "あのー、Threads午後3時とか4時に投稿しない方が良いですよ。", likes: 408, chars: 33 },
+      { hook: "あのー、2/11に発表されたThreadsの新機能、知らないとマジで損しますよ。", likes: 124, chars: 40 },
+      { hook: "Threadsで1日3投稿以下の人、マジで損してます。", likes: 39, chars: 45 },
+    ],
   },
   asa_to_ame: {
     username: "asa_to_ame",
@@ -63,6 +69,11 @@ export const MODEL_PROFILES: Record<string, ModelProfile> = {
       "Threads運用ノウハウ",
     ],
     dataSize: "1,154件（2026-01〜03）",
+    buzzExamples: [
+      { hook: "Threadsは感性が似ている人に届くらしい。 こんな幻想的な街を1人で散策したい。 何枚目が好きか教えてください✌︎", likes: 2329, chars: 60 },
+      { hook: "Niji7使ってみた 結構背景との調整が難しいけどむちゃくちゃ楽しい", likes: 380, chars: 34 },
+      { hook: "スレッズ上手すぎて、閲覧数が200万を超えました。 やっぱりThreads伸ばしたいなら、", likes: 173, chars: 46 },
+    ],
   },
   masahirochaen: {
     username: "masahirochaen",
@@ -84,6 +95,11 @@ export const MODEL_PROFILES: Record<string, ModelProfile> = {
       "コーディング・開発ツール",
     ],
     dataSize: "2,073件（2025-09〜2026-03）",
+    buzzExamples: [
+      { hook: "海外で大バズりしている「Claude Codeの能力を10倍にする CLAUDE.md」", likes: 4352, chars: 174 },
+      { hook: "Elon Muskのこの一言、かなり本質。", likes: 4000, chars: 168 },
+      { hook: "【⚡️速報】 FigmaとAnthropicが公式提携", likes: 2209, chars: 187 },
+    ],
   },
   SuguruKun_ai: {
     username: "SuguruKun_ai",
@@ -105,6 +121,11 @@ export const MODEL_PROFILES: Record<string, ModelProfile> = {
       "AI新サービスレビュー",
     ],
     dataSize: "2,064件（2025-03〜2026-03）",
+    buzzExamples: [
+      { hook: "Googleがやばい学習サイト出してた...", likes: 7018, chars: 190 },
+      { hook: "海外で大バズした「各AIモデルの使い分け」をまとめました：", likes: 5657, chars: 53 },
+      { hook: "Googleスプレッドシートについに『AI関数』が追加。", likes: 5651, chars: 102 },
+    ],
   },
 };
 
@@ -128,15 +149,19 @@ export function buildModelContext(usernames: string[]): string {
 
   return profiles
     .map(
-      (p) =>
-        `### @${p.username}（${p.displayName}）— ${p.style}
+      (p) => {
+        const buzzSection = p.buzzExamples.length > 0
+          ? `\n- バズ投稿例:\n${p.buzzExamples.map((e) => `  「${e.hook}」（いいね${e.likes}件 / ${e.chars}字）`).join("\n")}`
+          : "";
+        return `### @${p.username}（${p.displayName}）— ${p.style}
 - フック: ${p.hookStyle}
 - 構成: ${p.threadStructure}
 - 特徴: ${p.signature}
 - 平均いいね: ${p.avgLikes}件
 - 最適スレッド長: ${p.optimalThreadLength}
 - メディア: ${p.mediaStrategy}
-- 得意テーマ: ${p.topThemes.join("、")}`
+- 得意テーマ: ${p.topThemes.join("、")}${buzzSection}`;
+      }
     )
     .join("\n\n");
 }

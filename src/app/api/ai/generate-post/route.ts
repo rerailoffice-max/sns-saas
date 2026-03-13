@@ -259,18 +259,23 @@ ${thread_count ? `\nスレッドは${thread_count}件で構成してください
     if (jsonMatch) {
       jsonStr = jsonMatch[1].trim();
     } else {
-      // 直接JSONの場合
-      const directMatch = responseText.match(/\{[\s\S]*\}/);
-      if (directMatch) {
-        jsonStr = directMatch[0];
+      const arrayMatch = responseText.match(/\[[\s\S]*\]/);
+      if (arrayMatch) {
+        jsonStr = arrayMatch[0];
+      } else {
+        const objectMatch = responseText.match(/\{[\s\S]*\}/);
+        if (objectMatch) {
+          jsonStr = objectMatch[0];
+        }
       }
     }
 
     const generated = JSON.parse(jsonStr);
+    const posts = Array.isArray(generated) ? generated : (generated.posts ?? []);
 
     return NextResponse.json({
       data: {
-        posts: generated.posts ?? [],
+        posts,
         model: model_account_id ? "model" : "default",
         system_prompt: systemPrompt,
       },

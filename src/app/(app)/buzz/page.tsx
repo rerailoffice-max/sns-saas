@@ -246,7 +246,7 @@ export default async function BuzzPage() {
               エンゲージメント効率順の投稿ランキング
             </CardDescription>
           </CardHeader>
-          <CardContent className="max-h-[500px] overflow-y-auto">
+          <CardContent className="max-h-[500px] overflow-y-auto overflow-x-hidden">
             {rankedPosts.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-4">
                 データなし

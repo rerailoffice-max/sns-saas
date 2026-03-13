@@ -88,8 +88,8 @@ export function DraftsView({ drafts, accountId }: DraftsViewProps) {
             const resolvedAccountId = draft.account_id || accountId || "";
 
             return (
-              <Card key={draft.id}>
-                <CardContent className="py-4">
+              <Card key={draft.id} className="overflow-hidden">
+                <CardContent className="py-4 overflow-x-hidden">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0 space-y-2">
                       <p className="text-sm line-clamp-3">{draft.text}</p>
