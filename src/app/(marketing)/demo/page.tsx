@@ -18,10 +18,14 @@ import { EngagementChart } from "@/components/dashboard/engagement-chart";
 
 /** モックフォロワーデータ */
 const MOCK_FOLLOWERS = Array.from({ length: 30 }, (_, i) => {
-  const date = new Date();
-  date.setDate(date.getDate() - 29 + i);
+  const d = new Date();
+  d.setDate(d.getDate() - 29 + i);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
   return {
-    date: date.toLocaleDateString("ja-JP", { month: "short", day: "numeric" }),
+    rawDate: `${y}-${m}-${day}`,
+    date: d.toLocaleDateString("ja-JP", { month: "short", day: "numeric" }),
     count: 1200 + Math.floor(Math.random() * 50) + i * 8,
   };
 });

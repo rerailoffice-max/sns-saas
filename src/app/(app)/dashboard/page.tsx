@@ -26,10 +26,16 @@ import { RSSNewsFeed } from "@/components/dashboard/rss-news-feed";
 import { SyncButton } from "@/components/dashboard/sync-button";
 
 // モックデータ（Supabase未接続時用）
-const MOCK_FOLLOWERS = Array.from({ length: 30 }, (_, i) => ({
-  date: `${Math.floor((i + 1) / 30 * 3) + 1}月${((i + 1) % 28) + 1}日`,
-  count: 1200 + Math.floor(i * 8 + (i % 3) * 15),
-}));
+const MOCK_FOLLOWERS = Array.from({ length: 30 }, (_, i) => {
+  const d = new Date(2025, 2, i + 1);
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return {
+    rawDate: `2025-${m}-${day}`,
+    date: `${d.getMonth() + 1}月${d.getDate()}日`,
+    count: 1200 + Math.floor(i * 8 + (i % 3) * 15),
+  };
+});
 
 const MOCK_ENGAGEMENT = Array.from({ length: 14 }, (_, i) => ({
   date: `${Math.floor((i + 1) / 14 * 3) + 1}月${((i + 1) % 28) + 1}日`,
@@ -116,7 +122,7 @@ export default async function DashboardPage({
   const hasAccounts = accountIds.length > 0;
 
   // フォロワースナップショット取得
-  let followerData: Array<{ date: string; count: number }> = [];
+  let followerData: Array<{ rawDate: string; date: string; count: number }> = [];
   if (hasAccounts) {
     const { data: snapshots } = await supabase
       .from("follower_snapshots")
@@ -126,16 +132,17 @@ export default async function DashboardPage({
       .order("recorded_at", { ascending: true });
 
     if (snapshots) {
-      // 日付でグループ化（複数アカウントの場合は合算）
       const dateMap = new Map<string, number>();
       snapshots.forEach((s) => {
-        const date = s.recorded_at;
-        dateMap.set(date, (dateMap.get(date) ?? 0) + s.follower_count);
+        const raw = s.recorded_at;
+        const dayKey = raw.includes("T") ? raw.split("T")[0] : raw;
+        dateMap.set(dayKey, (dateMap.get(dayKey) ?? 0) + s.follower_count);
       });
       followerData = Array.from(dateMap.entries())
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, count]) => ({
-          date: new Date(date).toLocaleDateString("ja-JP", {
+        .map(([rawDate, count]) => ({
+          rawDate,
+          date: new Date(rawDate + "T00:00:00").toLocaleDateString("ja-JP", {
             month: "short",
             day: "numeric",
           }),
@@ -310,7 +317,7 @@ function DashboardView({
   optimalTimings = [],
   lastSyncedAt,
 }: {
-  followerData: Array<{ date: string; count: number }>;
+  followerData: Array<{ rawDate: string; date: string; count: number }>;
   engagementData: Array<{
     date: string;
     likes: number;

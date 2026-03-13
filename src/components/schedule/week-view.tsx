@@ -22,7 +22,7 @@ interface WeekViewProps {
   onPostChanged?: () => void;
 }
 
-const HOUR_HEIGHT = 60;
+const HOUR_HEIGHT = 90;
 const SLOT_MINUTES = 10;
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
@@ -53,7 +53,7 @@ function DroppableSlot({ dateKey, hour, minute, children }: { dateKey: string; h
   return (
     <div
       ref={setNodeRef}
-      className={`absolute w-full transition-colors ${isOver ? "bg-primary/10" : ""}`}
+      className={`absolute w-full transition-colors rounded ${isOver ? "bg-primary/15 border-t border-primary/30" : ""}`}
       style={{ top: (hour * 60 + minute) * (HOUR_HEIGHT / 60), height: SLOT_MINUTES * (HOUR_HEIGHT / 60) }}
     >
       {children}
@@ -208,7 +208,7 @@ export function WeekView({
         </div>
 
         {/* Time grid */}
-        <div ref={scrollRef} className="overflow-y-auto max-h-[600px]">
+        <div ref={scrollRef} className="overflow-y-auto max-h-[700px]">
           <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
           <div className="relative" style={{ height: 24 * HOUR_HEIGHT }}>
             {HOURS.map((hour) => (

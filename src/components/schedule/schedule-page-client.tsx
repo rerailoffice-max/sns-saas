@@ -133,6 +133,7 @@ export function SchedulePageClient({
           onDateChange={handleDateChange}
           onDateClick={handleDateClick}
           onPostClick={handlePostClick}
+          onPostChanged={handleCreated}
         />
       )}
 

@@ -14,30 +14,38 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-interface FollowersChartProps {
-  data: Array<{
-    date: string;
-    count: number;
-  }>;
+interface ChartRow {
+  rawDate: string;
+  date: string;
+  count: number;
 }
 
-function fillDateGaps(data: Array<{ date: string; count: number }>): Array<{ date: string; count: number }> {
+interface FollowersChartProps {
+  data: ChartRow[];
+}
+
+function fillDateGaps(data: ChartRow[]): ChartRow[] {
   if (data.length <= 1) return data;
-  const sorted = [...data].sort((a, b) => a.date.localeCompare(b.date));
-  const result: Array<{ date: string; count: number }> = [];
+  const sorted = [...data].sort((a, b) => a.rawDate.localeCompare(b.rawDate));
+  const result: ChartRow[] = [];
   for (let i = 0; i < sorted.length; i++) {
     result.push(sorted[i]);
     if (i < sorted.length - 1) {
-      const curr = new Date(sorted[i].date);
-      const next = new Date(sorted[i + 1].date);
-      const diffDays = Math.round((next.getTime() - curr.getTime()) / (86400000));
+      const curr = new Date(sorted[i].rawDate + "T00:00:00");
+      const next = new Date(sorted[i + 1].rawDate + "T00:00:00");
+      const diffDays = Math.round((next.getTime() - curr.getTime()) / 86400000);
       if (diffDays > 1) {
         for (let d = 1; d < diffDays; d++) {
           const fill = new Date(curr);
           fill.setDate(fill.getDate() + d);
-          const m = fill.getMonth() + 1;
-          const day = fill.getDate();
-          result.push({ date: `${m}/${day}`, count: sorted[i].count });
+          const y = fill.getFullYear();
+          const m = String(fill.getMonth() + 1).padStart(2, "0");
+          const day = String(fill.getDate()).padStart(2, "0");
+          result.push({
+            rawDate: `${y}-${m}-${day}`,
+            date: fill.toLocaleDateString("ja-JP", { month: "short", day: "numeric" }),
+            count: sorted[i].count,
+          });
         }
       }
     }
