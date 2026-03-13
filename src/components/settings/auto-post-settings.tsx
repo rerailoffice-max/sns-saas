@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Rss, Zap, ShieldCheck, Clock, Search, Info } from "lucide-react";
+import { Loader2, Rss, Zap, ShieldCheck, Clock, Search, Info, ChevronRight, FileSearch, ListFilter, FileText, CheckCircle, Send } from "lucide-react";
 import { toast } from "sonner";
 import {
   Tooltip,
@@ -139,7 +139,7 @@ export function AutoPostSettings({ accounts }: AutoPostSettingsProps) {
         return;
       }
       const { data } = await res.json();
-      setSettings((prev) => prev ? { ...prev, ...data } : data);
+      setSettings((prev) => prev ? { ...prev, ...updates, ...data } : { ...updates, ...data } as SettingsData);
       toast.success("設定を保存しました");
     } catch {
       toast.error("通信エラーが発生しました");
@@ -176,7 +176,7 @@ export function AutoPostSettings({ accounts }: AutoPostSettingsProps) {
                 AI自動投稿
               </CardTitle>
               <CardDescription>
-                X参考アカウント + RSSフィードからAIニュースを収集し、テーマ選定・下書き・投稿を自動化します
+                ONにすると、下記のスケジュールに従ってAIニュース収集・投稿を自動実行します
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
@@ -228,16 +228,16 @@ export function AutoPostSettings({ accounts }: AutoPostSettingsProps) {
             )}
           </div>
 
-          {/* 承認フロー */}
+          {/* 投稿前の承認 */}
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <label className="text-sm font-medium">承認フロー</label>
+              <label className="text-sm font-medium">投稿前の承認</label>
               <Tooltip>
                 <TooltipTrigger>
                   <Info className="h-3.5 w-3.5 text-muted-foreground" />
                 </TooltipTrigger>
                 <TooltipContent side="right" className="max-w-[280px]">
-                  <p className="text-xs">ONの場合、AIが生成した下書きを管理者DMに送信し、承認を待ってから投稿します。OFFの場合は生成後すぐに予約投稿されます。</p>
+                  <p className="text-xs">ONにすると、AIが生成した下書きを管理者DMに送信し、承認を待ってから投稿します。OFFにすると生成後すぐに予約投稿されます。</p>
                 </TooltipContent>
               </Tooltip>
             </div>
@@ -261,6 +261,7 @@ export function AutoPostSettings({ accounts }: AutoPostSettingsProps) {
                 disabled={isSaving}
               />
             </div>
+            <p className="text-xs text-muted-foreground">この設定は自動投稿がONの場合に適用されます</p>
           </div>
 
           {/* テーマ選定ルール */}
@@ -273,6 +274,45 @@ export function AutoPostSettings({ accounts }: AutoPostSettingsProps) {
               1回の実行で1テーマのみ選定。「公式発表・業界ニュース・データ」のみ投稿対象とし、
               個人の手法・作品・解説記事は自動でネタストックに保存されます。
             </p>
+          </div>
+
+          {/* 実行フロー */}
+          <div className="space-y-2">
+            <p className="text-sm font-medium">実行フロー（各スケジュール時刻ごと）</p>
+            <div className="rounded-lg border bg-muted/30 p-4 overflow-x-auto">
+              <div className="flex items-center gap-1.5 min-w-[520px]">
+                {[
+                  { icon: <FileSearch className="h-4 w-4" />, step: "1", title: "収集", desc: "X + RSS" },
+                  { icon: <ListFilter className="h-4 w-4" />, step: "2", title: "選定", desc: "1テーマ" },
+                  { icon: <FileText className="h-4 w-4" />, step: "3", title: "生成", desc: "下書き作成" },
+                  {
+                    icon: <CheckCircle className="h-4 w-4" />,
+                    step: "4",
+                    title: settings?.approval_required ? "承認" : "承認",
+                    desc: settings?.approval_required ? "DM通知 → 承認待ち" : "(スキップ)",
+                    dimmed: !settings?.approval_required,
+                  },
+                  { icon: <Send className="h-4 w-4" />, step: "5", title: "投稿", desc: "予約投稿" },
+                ].map((s, i) => (
+                  <div key={i} className="flex items-center gap-1.5">
+                    {i > 0 && <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />}
+                    <div className={`flex flex-col items-center gap-1 rounded-lg border px-3 py-2 min-w-[80px] text-center transition-colors ${
+                      s.dimmed ? "opacity-40 border-dashed" : "bg-background"
+                    }`}>
+                      <div className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                        <span>{s.step}.</span>
+                        {s.icon}
+                      </div>
+                      <p className="text-sm font-medium leading-tight">{s.title}</p>
+                      <p className="text-[10px] text-muted-foreground leading-tight">{s.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-3">
+                1回の実行で最大1件の投稿を生成します。テーマが見つからない場合はスキップされます。
+              </p>
+            </div>
           </div>
 
           {/* 実行スケジュール */}
@@ -335,6 +375,7 @@ export function AutoPostSettings({ accounts }: AutoPostSettingsProps) {
               </div>
             </div>
             <div className="rounded-lg bg-muted/50 p-3 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">実行予定時刻（JST）</p>
               <div className="flex gap-2 flex-wrap">
                 {scheduleTimes.map((t) => (
                   <Badge key={t} variant="outline" className="text-xs font-mono">
@@ -343,7 +384,7 @@ export function AutoPostSettings({ accounts }: AutoPostSettingsProps) {
                 ))}
               </div>
               <p className="text-xs text-muted-foreground">
-                上記の時刻（JST）にデータを収集し、AIが1テーマを選定して投稿を生成します
+                各時刻にX参考アカウント + RSSから最新情報を収集し、1テーマを選定して下書きを生成します。投稿数は1回につき最大1件です。
               </p>
             </div>
           </div>
