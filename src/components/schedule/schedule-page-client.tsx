@@ -132,16 +132,17 @@ export function SchedulePageClient({
           currentDate={currentDate}
           onDateChange={handleDateChange}
           onDateClick={handleDateClick}
-          onPostClick={handlePostClick}
           onPostChanged={handleCreated}
         />
       )}
 
-      <PostDetailDialog
-        post={selectedPost}
-        onClose={() => setSelectedPost(null)}
-        onPostChanged={handlePostChanged}
-      />
+      {viewMode !== "day" && (
+        <PostDetailDialog
+          post={selectedPost}
+          onClose={() => setSelectedPost(null)}
+          onPostChanged={handlePostChanged}
+        />
+      )}
 
       <ScheduleDialog
         open={dialogOpen}

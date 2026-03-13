@@ -21,7 +21,6 @@ interface DayViewProps {
   currentDate: Date;
   onDateChange: (date: Date) => void;
   onDateClick: (date: string) => void;
-  onPostClick: (post: ScheduledPostWithDetails) => void;
   onPostChanged?: () => void;
 }
 
@@ -53,12 +52,22 @@ function DraggablePost({ post, topPx, children }: { post: ScheduledPostWithDetai
 function DroppableSlot({ dateKey, hour, minute }: { dateKey: string; hour: number; minute: number }) {
   const id = `day-${dateKey}-${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
   const { setNodeRef, isOver } = useDroppable({ id, data: { dateKey, hour, minute } });
+  const timeLabel = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
   return (
     <div
       ref={setNodeRef}
-      className={`absolute left-16 right-4 transition-colors rounded ${isOver ? "bg-primary/15 border border-primary/30" : ""}`}
+      className={`absolute left-16 right-4 transition-colors group/slot ${
+        isOver
+          ? "bg-primary/15 rounded border border-primary/30"
+          : "hover:bg-accent/40 rounded"
+      }`}
       style={{ top: (hour * 60 + minute) * (HOUR_HEIGHT / 60), height: SLOT_MINUTES * (HOUR_HEIGHT / 60) }}
-    />
+      title={timeLabel}
+    >
+      <span className="hidden group-hover/slot:inline-block absolute right-1 top-0 text-[9px] text-muted-foreground/70 leading-[20px]">
+        {timeLabel}
+      </span>
+    </div>
   );
 }
 
@@ -67,7 +76,6 @@ export function DayView({
   currentDate,
   onDateChange,
   onDateClick,
-  onPostClick,
   onPostChanged,
 }: DayViewProps) {
   const router = useRouter();
@@ -178,20 +186,32 @@ export function DayView({
           <div ref={scrollRef} className="overflow-y-auto max-h-[700px]">
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
             <div className="relative" style={{ height: 24 * HOUR_HEIGHT }}>
-              {/* Hour lines */}
-              {HOURS.map((hour) => (
-                <div
-                  key={hour}
-                  className="absolute w-full border-b border-muted/50"
-                  style={{ top: hour * HOUR_HEIGHT, height: HOUR_HEIGHT }}
-                >
-                  <span className="absolute left-2 -top-2.5 text-[11px] text-muted-foreground font-medium">
-                    {String(hour).padStart(2, "0")}:00
-                  </span>
-                  {/* 30-min line */}
-                  <div className="absolute w-full border-b border-dashed border-muted/30" style={{ top: HOUR_HEIGHT / 2 }} />
-                </div>
-              ))}
+              {/* Hour lines + sub-lines */}
+              {HOURS.map((hour) => {
+                const slotH = HOUR_HEIGHT / 6;
+                return (
+                  <div
+                    key={hour}
+                    className="absolute w-full border-b border-muted"
+                    style={{ top: hour * HOUR_HEIGHT, height: HOUR_HEIGHT }}
+                  >
+                    <span className="absolute left-1.5 -top-2.5 text-[11px] text-muted-foreground font-medium w-12 text-right pr-1">
+                      {String(hour).padStart(2, "0")}:00
+                    </span>
+                    {/* 10-min sub-lines: :10, :20 */}
+                    <div className="absolute left-16 right-0 border-b border-dotted border-muted/20" style={{ top: slotH }} />
+                    <div className="absolute left-16 right-0 border-b border-dotted border-muted/20" style={{ top: slotH * 2 }} />
+                    {/* 30-min line */}
+                    <div className="absolute left-16 right-0 border-b border-dashed border-muted/40" style={{ top: HOUR_HEIGHT / 2 }} />
+                    <span className="absolute left-1.5 text-[10px] text-muted-foreground/50 w-12 text-right pr-1" style={{ top: HOUR_HEIGHT / 2 - 6 }}>
+                      {String(hour).padStart(2, "0")}:30
+                    </span>
+                    {/* 10-min sub-lines: :40, :50 */}
+                    <div className="absolute left-16 right-0 border-b border-dotted border-muted/20" style={{ top: slotH * 4 }} />
+                    <div className="absolute left-16 right-0 border-b border-dotted border-muted/20" style={{ top: slotH * 5 }} />
+                  </div>
+                );
+              })}
 
               {/* Droppable 10-min slots */}
               {HOURS.map((h) =>
@@ -217,7 +237,6 @@ export function DayView({
                       onClick={(e) => {
                         e.stopPropagation();
                         setSelectedPost(post);
-                        onPostClick(post);
                       }}
                     >
                       <div className="flex items-center gap-2 mb-0.5">
@@ -257,14 +276,14 @@ export function DayView({
       </Card>
 
       {/* Right: Detail sidebar */}
-      <Card className="hidden lg:block w-[360px] shrink-0 self-start sticky top-0">
+      <Card className="hidden lg:block w-[360px] shrink-0 self-start sticky top-0 overflow-hidden">
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
             <CalendarClock className="h-4 w-4" />
             投稿詳細
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-y-auto max-h-[calc(100vh-200px)]">
           {selectedPost ? (
             <PostDetailContent
               post={selectedPost}

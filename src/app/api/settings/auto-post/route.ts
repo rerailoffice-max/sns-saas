@@ -10,8 +10,10 @@ import { z } from "zod";
 const updateSchema = z.object({
   is_enabled: z.boolean().optional(),
   account_id: z.string().uuid().nullable().optional(),
-  posts_per_cycle: z.number().min(1).max(3).optional(),
-  schedule_delay_minutes: z.number().min(15).max(240).optional(),
+  approval_required: z.boolean().optional(),
+  schedule_start_hour: z.number().min(0).max(23).optional(),
+  schedule_end_hour: z.number().min(0).max(23).optional(),
+  schedule_interval_minutes: z.number().min(30).max(240).optional(),
   rss_feeds: z
     .array(
       z.object({
@@ -20,6 +22,10 @@ const updateSchema = z.object({
       })
     )
     .max(10)
+    .optional(),
+  x_accounts: z
+    .array(z.string().min(1).max(100))
+    .max(20)
     .optional(),
 });
 
@@ -45,9 +51,12 @@ export async function GET() {
       data: {
         is_enabled: false,
         account_id: null,
-        posts_per_cycle: 1,
-        schedule_delay_minutes: 30,
+        approval_required: true,
+        schedule_start_hour: 8,
+        schedule_end_hour: 22,
+        schedule_interval_minutes: 60,
         rss_feeds: [],
+        x_accounts: [],
       },
     });
   }
@@ -117,9 +126,12 @@ export async function PUT(request: NextRequest) {
       .insert({
         profile_id: user.id,
         is_enabled: false,
-        posts_per_cycle: 1,
-        schedule_delay_minutes: 30,
+        approval_required: true,
+        schedule_start_hour: 8,
+        schedule_end_hour: 22,
+        schedule_interval_minutes: 60,
         rss_feeds: [],
+        x_accounts: [],
         ...parsed.data,
       })
       .select()

@@ -225,16 +225,16 @@ export function PostDetailContent({
         {isThread ? (
           <div className="space-y-2">
             {threadPosts.map((t, i) => (
-              <div key={i} className="bg-muted/50 rounded-lg p-3 relative">
+              <div key={i} className="bg-muted/50 rounded-lg p-3 relative overflow-hidden">
                 <span className="absolute top-1.5 right-2 text-[10px] text-muted-foreground">{i + 1}/{threadPosts.length}</span>
-                <p className="text-sm whitespace-pre-wrap pr-8">{t}</p>
+                <p className="text-sm whitespace-pre-wrap break-words pr-8">{t}</p>
               </div>
             ))}
           </div>
         ) : (
           post.drafts?.text && (
-            <div className="bg-muted/50 rounded-lg p-3">
-              <p className="text-sm whitespace-pre-wrap">{post.drafts.text}</p>
+            <div className="bg-muted/50 rounded-lg p-3 overflow-hidden">
+              <p className="text-sm whitespace-pre-wrap break-words">{post.drafts.text}</p>
             </div>
           )
         )}
