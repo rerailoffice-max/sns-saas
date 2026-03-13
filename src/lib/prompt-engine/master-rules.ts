@@ -113,42 +113,55 @@ export interface ThreadTemplate {
 }
 
 export const THREAD_TEMPLATES: Record<number, ThreadTemplate> = {
+  1: {
+    description: "単発長文（500字フル活用）",
+    posts: [
+      { role: "フック + 解説 + CTA を1投稿に凝縮。情報密度を最大化", charMin: 300, charMax: 500 },
+    ],
+  },
+  2: {
+    description: "フック + 長文解説（kudooo_ai型）",
+    posts: [
+      { role: "フック + URL（短く鋭く注目を引く）", charMin: 30, charMax: 100 },
+      { role: "詳細解説（背景・要点・影響を長文で丁寧に解説）", charMin: 300, charMax: 500 },
+    ],
+  },
   3: {
     description: "標準構成（Threads/X共通）",
     posts: [
       { role: "フック + URL", charMin: 50, charMax: 100 },
-      { role: "①②③ リストで要点", charMin: 150, charMax: 300 },
-      { role: "「つまり〇〇ってこと」で締め or 質問", charMin: 80, charMax: 200 },
+      { role: "詳細解説（要点・背景・数字を盛り込んだ長文）", charMin: 200, charMax: 500 },
+      { role: "まとめ・展望 or 質問で締め", charMin: 80, charMax: 500 },
     ],
   },
   4: {
-    description: "詳細あり",
+    description: "詳細解説あり（情報量の多い記事向け）",
     posts: [
       { role: "フック + URL", charMin: 50, charMax: 100 },
-      { role: "①②③ リストで要点", charMin: 150, charMax: 300 },
-      { role: "深掘り・補足情報", charMin: 100, charMax: 200 },
-      { role: "質問 or CTA で返信誘発", charMin: 50, charMax: 100 },
+      { role: "本論・詳細解説（背景・要点を長文で展開）", charMin: 200, charMax: 500 },
+      { role: "深掘り・具体策・アクションリスト", charMin: 200, charMax: 500 },
+      { role: "まとめ + 質問 or CTA で返信誘発", charMin: 50, charMax: 200 },
     ],
   },
   5: {
     description: "最高効率（いいね4.2倍）",
     posts: [
       { role: "フック + URL", charMin: 50, charMax: 100 },
-      { role: "①②③ リストで要点", charMin: 150, charMax: 300 },
-      { role: "深掘り・技術的な補足", charMin: 100, charMax: 200 },
-      { role: "実用的な活用例", charMin: 100, charMax: 200 },
-      { role: "質問 or まとめ", charMin: 50, charMax: 100 },
+      { role: "本論・詳細解説（長文OK）", charMin: 200, charMax: 500 },
+      { role: "深掘り・技術的な補足（長文OK）", charMin: 150, charMax: 500 },
+      { role: "実用的な活用例", charMin: 100, charMax: 300 },
+      { role: "質問 or まとめ", charMin: 50, charMax: 150 },
     ],
   },
   6: {
     description: "X長スレッド（SuguruKun_ai型・いいね918件）",
     posts: [
       { role: "フック（141字以内）", charMin: 80, charMax: 141 },
-      { role: "概要・背景", charMin: 100, charMax: 200 },
-      { role: "ポイント①②③", charMin: 100, charMax: 200 },
-      { role: "具体例・スクリーンショット", charMin: 80, charMax: 200 },
-      { role: "活用法・応用", charMin: 80, charMax: 200 },
-      { role: "まとめ + CTA", charMin: 50, charMax: 150 },
+      { role: "概要・背景（長文OK）", charMin: 100, charMax: 280 },
+      { role: "ポイント①②③", charMin: 100, charMax: 280 },
+      { role: "具体例・スクリーンショット", charMin: 80, charMax: 280 },
+      { role: "活用法・応用", charMin: 80, charMax: 280 },
+      { role: "まとめ + CTA", charMin: 50, charMax: 200 },
     ],
   },
 };

@@ -12,6 +12,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllFeeds, DEFAULT_RSS_FEEDS, type RSSFeed } from "@/lib/rss/parser";
 import { translateUntranslatedArticles } from "@/lib/rss/translate";
 import { buildPostPrompt } from "@/lib/prompt-engine";
+import { fetchUrlContent } from "@/lib/url-fetcher";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -173,23 +174,40 @@ ${articlesList}`,
     const article = pickedArticles[i];
 
     try {
+      // 記事本文・OG画像を取得
+      let articleBody = "";
+      let ogImageUrl = "";
+      try {
+        const fetched = await fetchUrlContent(article.link);
+        articleBody = fetched.text?.slice(0, 3000) ?? "";
+        ogImageUrl = fetched.mediaUrls?.[0] ?? "";
+      } catch { /* フェッチ失敗時はdescriptionのみで生成 */ }
+
+      const isEnglish = /^[a-zA-Z0-9\s.,!?'"()\-:;]+$/.test(
+        (article.title ?? "").slice(0, 50)
+      );
+
       const genResponse = await anthropic.messages.create({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 2000,
+        max_tokens: 3000,
         messages: [
           {
             role: "user",
-            content: `以下のAIニュース記事をもとに、バズりやすいスレッド形式の投稿を生成してください。
+            content: `以下の記事をもとに、バズりやすいスレッド投稿を生成してください。
 
-記事タイトル: ${article.title}
-記事URL: ${article.link}
-記事概要: ${article.description ?? ""}
+## 元記事情報
+タイトル: ${article.title}
+URL: ${article.link}
+概要: ${article.description ?? "なし"}
 ソース: ${article.source}
+${articleBody ? `\n## 記事本文（抜粋）\n${articleBody}` : ""}
 
-重要ルール:
-- 投稿1にはこの記事のURL（${article.link}）を必ず含めてください
-- ニュースの要点を分かりやすく日本語で解説してください
-- JSON文字列配列で返してください`,
+## 重要ルール
+1. **投稿1の冒頭**にURLを配置${isEnglish ? `。ただし元記事が英語の場合は、同じニュースの日本語記事URL（ITmedia, GIGAZINE, TechCrunch Japan, CNET Japan, Impress Watch等）を代わりに使ってください。日本語記事が見つからない場合のみ元の英語URLを使用` : ""}
+2. 元記事の情報だけで終わらせず、あなたの知識から**関連する最新動向・背景・具体的な数字・業界への影響**を補完し、元記事より有益で情報密度の高い投稿にしてください
+3. 情報量が多い場合は投稿2以降を400-500字の長文解説にしてください
+4. 日本語で、分かりやすく解説
+5. JSON文字列配列で返してください（例: ["投稿1", "投稿2", ...]）`,
           },
         ],
         system: systemPrompt,
@@ -211,6 +229,9 @@ ${articlesList}`,
       const threadPosts = JSON.parse(jsonStr) as string[];
       if (!Array.isArray(threadPosts) || threadPosts.length === 0) continue;
 
+      const mediaUrls: string[] = [];
+      if (ogImageUrl) mediaUrls.push(ogImageUrl);
+
       // 下書き保存
       const { data: draft, error: draftError } = await admin
         .from("drafts")
@@ -219,7 +240,7 @@ ${articlesList}`,
           account_id: setting.account_id,
           text: threadPosts[0],
           hashtags: [],
-          media_urls: [],
+          media_urls: mediaUrls,
           source: "ai",
           metadata: {
             thread_posts: threadPosts,

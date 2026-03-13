@@ -95,8 +95,8 @@ export function buildPostPrompt(options: BuildPromptOptions): string {
   const templateKeys = threadCount
     ? [threadCount]
     : platform === "threads"
-      ? [3, 4, 5]
-      : [3, 4, 5, 6];
+      ? [2, 3, 4, 5]
+      : [2, 3, 4, 5, 6];
 
   sections.push(
     "## スレッド構成テンプレート\n" +
@@ -106,7 +106,8 @@ export function buildPostPrompt(options: BuildPromptOptions): string {
           const t = THREAD_TEMPLATES[k];
           return `${k}件構成（${t.description}）:\n${t.posts.map((p, i) => `  投稿${i + 1}: ${p.role}（${p.charMin}-${p.charMax}字）`).join("\n")}`;
         })
-        .join("\n\n")
+        .join("\n\n") +
+      "\n\n★ 重要: 記事の情報量が多い場合は投稿2以降を400-500字の長文にすること（@kudooo_ai型: 投稿2平均414字、投稿3平均467字）。ただしXの場合は280字制限を守る。"
   );
 
   // --- プラットフォーム固有ルール ---
@@ -195,9 +196,15 @@ export function buildPostPrompt(options: BuildPromptOptions): string {
   }
 
   // --- 出力形式 ---
-  sections.push(
-    `## 出力形式\n必ずJSON配列で返してください。各要素はスレッド内の1投稿文（文字列）です。\n例: ["投稿1のテキスト", "投稿2のテキスト", "投稿3のテキスト"]`
-  );
+  if (threadCount === 1) {
+    sections.push(
+      `## 出力形式\n必ずJSON配列で返してください。1投稿（500字以内）の単発長文です。\n例: ["フック→解説→CTAを1投稿に凝縮したテキスト"]`
+    );
+  } else {
+    sections.push(
+      `## 出力形式\n必ずJSON配列で返してください。各要素はスレッド内の1投稿文（文字列）です。\n例: ["投稿1のテキスト", "投稿2のテキスト", "投稿3のテキスト"]`
+    );
+  }
 
   return sections.join("\n\n");
 }

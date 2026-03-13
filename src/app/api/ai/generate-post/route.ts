@@ -23,7 +23,7 @@ const requestSchema = z.object({
   source_url: z.string().optional(),
   thread_mode: z.boolean().optional().default(false),
   hook_pattern: z.enum(["A", "B", "C", "D", "E", "F", "G"]).optional(),
-  thread_count: z.number().min(3).max(6).optional(),
+  thread_count: z.number().min(1).max(6).optional(),
   platform: z.enum(["threads", "x"]).optional().default("threads"),
 });
 
@@ -148,20 +148,48 @@ export async function POST(request: NextRequest) {
           );
         }
         fetchedMediaUrls = urlContent.mediaUrls;
-        userContent = `以下のURLの内容を元に、Threadsスレッド形式の投稿を生成してください。
 
+        const articleBody = urlContent.text.slice(0, 3000);
+        const isEnglish = /^[a-zA-Z0-9\s.,!?'"()\-:;]+$/.test(
+          (urlContent.title ?? "").slice(0, 50)
+        );
+
+        const threadCountInstruction = thread_count === 1
+          ? "単発の長文投稿（500字以内）を1つ生成してください。"
+          : thread_count
+            ? `スレッドは${thread_count}件で構成してください。`
+            : "記事の情報量に応じて最適なスレッド数（2-5件）を選んでください。";
+
+        userContent = `以下の記事をもとに、バズりやすい投稿を生成してください。
+
+## 元記事情報
 URL: ${urlContent.url}
 タイトル: ${urlContent.title ?? "（なし）"}
-本文:
-${urlContent.text}
-${thread_count ? `\nスレッドは${thread_count}件で構成してください。` : ""}
 
-上記内容を要約・再構成し、バズりやすいスレッド形式でJSON配列（各要素は1投稿文の文字列）で返してください。`;
+## 記事本文（抜粋）
+${articleBody}
+
+## 生成ルール
+1. **投稿1の冒頭**にURLを配置${isEnglish ? `。ただし元記事が英語の場合は、同じニュースの日本語記事URL（ITmedia, GIGAZINE, TechCrunch Japan, CNET Japan, Impress Watch等）を代わりに使ってください。日本語記事が見つからない場合のみ元の英語URLを使用` : ""}
+2. 元記事の情報だけで終わらせず、あなたの知識から**関連する最新動向・背景・具体的な数字・業界への影響**を補完し、元記事より有益で情報密度の高い投稿にしてください
+3. 情報量が多い場合は投稿2以降を400-500字の長文解説にしてください（@kudooo_ai型）
+4. ${threadCountInstruction}
+5. 日本語で、分かりやすく解説
+6. JSON文字列配列で返してください（例: ["投稿1", "投稿2", ...]）`;
       } else {
-        userContent = `テーマ: ${theme}
-${thread_count ? `\nスレッドは${thread_count}件で構成してください。` : ""}
+        const threadCountInstruction = thread_count === 1
+          ? "単発の長文投稿（500字以内）を1つ生成してください。"
+          : thread_count
+            ? `スレッドは${thread_count}件で構成してください。`
+            : "テーマの情報量に応じて最適なスレッド数（2-5件）を選んでください。";
 
-上記テーマでバズりやすいThreadsスレッド形式の投稿を生成してください。JSON配列（各要素は1投稿文の文字列）で返してください。`;
+        userContent = `テーマ: ${theme}
+
+## 生成ルール
+1. 単なる紹介で終わらせず、関連する最新動向・背景知識・具体的な数字を補足し、情報密度の高い投稿にする
+2. 情報量が多い場合は投稿2以降を400-500字の長文解説にしてください
+3. ${threadCountInstruction}
+4. JSON配列（各要素は1投稿文の文字列）で返してください`;
       }
 
       const response = await anthropic.messages.create({
