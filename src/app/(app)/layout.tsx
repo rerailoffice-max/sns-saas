@@ -48,6 +48,11 @@ export default async function AppLayout({
     redirect("/login");
   }
 
+  const { data: socialAccounts } = await supabase
+    .from("social_accounts")
+    .select("platform, username, is_active")
+    .eq("profile_id", user.id);
+
   return (
     <div className="flex h-[100dvh] overflow-hidden">
       <div className="hidden md:flex">
@@ -60,6 +65,11 @@ export default async function AppLayout({
             name: user.user_metadata?.full_name,
             avatarUrl: user.user_metadata?.avatar_url,
           }}
+          socialAccounts={(socialAccounts ?? []).map((a) => ({
+            platform: a.platform,
+            username: a.username,
+            isActive: a.is_active,
+          }))}
         />
         <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 pb-20 md:pb-6">{children}</main>
       </div>

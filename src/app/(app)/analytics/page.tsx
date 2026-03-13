@@ -17,6 +17,7 @@ import {
 import { TopPostsRanking, type RankedPost } from "@/components/analytics/top-posts-ranking";
 import { EngagementHeatmap, type HeatmapCell } from "@/components/analytics/engagement-heatmap";
 import { CategoryChart, type CategoryData } from "@/components/analytics/category-chart";
+import { Heart, MessageCircle, Repeat2, TrendingUp } from "lucide-react";
 
 export default async function AnalyticsPage() {
   // デモモード: Supabase未設定時は空データで表示
@@ -91,6 +92,10 @@ export default async function AnalyticsPage() {
   let rankedPosts: RankedPost[] = [];
   let heatmapData: HeatmapCell[] = [];
   let categoryData: CategoryData[] = [];
+  let totalLikes = 0;
+  let totalReplies = 0;
+  let totalReposts = 0;
+  let postCount = 0;
 
   if (hasAccounts) {
     const { data: insights } = await supabase
@@ -103,9 +108,14 @@ export default async function AnalyticsPage() {
       .order("posted_at", { ascending: false });
 
     if (insights && insights.length > 0) {
-      // ========================================
+      postCount = insights.length;
+      insights.forEach((p) => {
+        totalLikes += p.likes ?? 0;
+        totalReplies += p.replies ?? 0;
+        totalReposts += p.reposts ?? 0;
+      });
+
       // トップ投稿ランキング（エンゲージメント合計 DESC でソート、上位20件）
-      // ========================================
       rankedPosts = insights
         .map((p) => ({
           id: p.id,
@@ -180,9 +190,60 @@ export default async function AnalyticsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-2 min-w-0">
-        <h1 className="text-2xl font-bold truncate">投稿分析</h1>
+        <div>
+          <h1 className="text-2xl font-bold truncate">投稿分析</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">過去の投稿実績を俯瞰し、カテゴリ別のパフォーマンスを確認できます</p>
+        </div>
         <SyncButton lastSyncedAt={lastSyncedAt} />
       </div>
+
+      {/* Summary Cards */}
+      {postCount > 0 && (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">総いいね</CardTitle>
+              <Heart className="h-4 w-4 text-pink-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{totalLikes.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground">直近90日・{postCount}投稿</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">総リプライ</CardTitle>
+              <MessageCircle className="h-4 w-4 text-blue-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{totalReplies.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground">直近90日・{postCount}投稿</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">総リポスト</CardTitle>
+              <Repeat2 className="h-4 w-4 text-green-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{totalReposts.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground">直近90日・{postCount}投稿</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">平均エンゲージメント</CardTitle>
+              <TrendingUp className="h-4 w-4 text-orange-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {postCount > 0 ? Math.round((totalLikes + totalReplies + totalReposts) / postCount) : 0}
+              </div>
+              <p className="text-xs text-muted-foreground">1投稿あたりの反応数</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {!hasAccounts && (
         <Card>
@@ -212,7 +273,7 @@ export default async function AnalyticsPage() {
         <Card>
           <CardHeader>
             <CardTitle>エンゲージメントヒートマップ</CardTitle>
-            <CardDescription>曜日×時間帯別の反応傾向</CardDescription>
+            <CardDescription>曜日×時間帯別の反応傾向（色が濃いほどエンゲージメントが高い時間帯）</CardDescription>
           </CardHeader>
           <CardContent>
             <EngagementHeatmap data={heatmapData} />

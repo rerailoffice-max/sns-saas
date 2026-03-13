@@ -20,6 +20,13 @@ import {
 import { LogOut, User, Settings, Menu } from "lucide-react";
 import Link from "next/link";
 import { AppSidebar } from "./app-sidebar";
+import { PlatformIcon } from "@/components/icons/platform-icon";
+
+interface SocialAccountLink {
+  platform: string;
+  username: string;
+  isActive: boolean;
+}
 
 interface HeaderProps {
   user?: {
@@ -27,11 +34,24 @@ interface HeaderProps {
     name?: string;
     avatarUrl?: string;
   };
+  socialAccounts?: SocialAccountLink[];
 }
 
-export function Header({ user }: HeaderProps) {
+const PLATFORM_URLS: Record<string, (username: string) => string> = {
+  threads: (u) => `https://www.threads.net/@${u}`,
+  x: (u) => `https://x.com/${u}`,
+  instagram: (u) => `https://www.instagram.com/${u}`,
+};
+
+const ALL_PLATFORMS = ["threads", "x", "instagram"];
+
+export function Header({ user, socialAccounts = [] }: HeaderProps) {
   const initials = user?.name?.slice(0, 2) ?? user?.email?.slice(0, 2) ?? "U";
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const accountMap = new Map(
+    socialAccounts.filter((a) => a.isActive).map((a) => [a.platform, a])
+  );
 
   return (
     <>
@@ -53,6 +73,37 @@ export function Header({ user }: HeaderProps) {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* SNS Account Links */}
+          <div className="hidden sm:flex items-center gap-1">
+            {ALL_PLATFORMS.map((platform) => {
+              const account = accountMap.get(platform);
+              if (account) {
+                const url = PLATFORM_URLS[platform]?.(account.username);
+                return (
+                  <a
+                    key={platform}
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-accent transition-colors"
+                    title={`@${account.username}`}
+                  >
+                    <PlatformIcon platform={platform} size={18} />
+                  </a>
+                );
+              }
+              return (
+                <div
+                  key={platform}
+                  className="flex items-center justify-center h-8 w-8 rounded-md opacity-20 cursor-default"
+                  title="未接続"
+                >
+                  <PlatformIcon platform={platform} size={18} />
+                </div>
+              );
+            })}
+          </div>
+          <div className="hidden sm:block w-px h-6 bg-border" />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-9 w-9 rounded-full">

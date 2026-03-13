@@ -22,7 +22,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Save, Send, Loader2, AlertCircle, X, Plus, ImagePlus, Share2, CalendarClock } from "lucide-react";
+import { Save, Send, Loader2, AlertCircle, X, Plus, ImagePlus, Share2, CalendarClock, ArrowUp, ArrowDown } from "lucide-react";
 import { toast } from "sonner";
 import type { HashtagStats } from "@/lib/hashtag-recommend";
 
@@ -511,50 +511,100 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
 
             {/* テキスト入力 */}
             {threadMode ? (
-              <div className="space-y-4">
+              <div className="space-y-1">
                 {threadPosts.map((post, index) => (
-                  <div key={index} className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">投稿{index + 1}</span>
-                      <div className="flex items-center gap-2">
-                        {index === 0 && post.length > 100 && (
-                          <Badge variant="destructive" className="text-xs">
-                            フック100字超過
-                          </Badge>
-                        )}
-                        <CharCounter current={post.length} max={MAX_CHARS} />
+                  <div key={`thread-${index}`}>
+                    {/* Insert between button (before first post too if multiple) */}
+                    {index > 0 && threadPosts.length < 6 && (
+                      <div className="flex items-center gap-2 py-1">
+                        <div className="flex-1 border-t border-dashed" />
                         <Button
                           variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 shrink-0"
-                          onClick={() =>
-                            setThreadPosts((prev) => prev.filter((_, i) => i !== index))
-                          }
-                          disabled={threadPosts.length <= 1}
+                          size="sm"
+                          className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                          onClick={() => setThreadPosts((prev) => {
+                            const next = [...prev];
+                            next.splice(index, 0, "");
+                            return next;
+                          })}
                         >
-                          <X className="h-4 w-4" />
+                          <Plus className="h-3 w-3 mr-1" />ここに挿入
                         </Button>
+                        <div className="flex-1 border-t border-dashed" />
                       </div>
+                    )}
+                    <div className="space-y-2 rounded-lg border p-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm font-medium">投稿{index + 1}</span>
+                          {/* Reorder buttons */}
+                          <div className="flex">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              disabled={index === 0}
+                              onClick={() => setThreadPosts((prev) => {
+                                const next = [...prev];
+                                [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                                return next;
+                              })}
+                            >
+                              <ArrowUp className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              disabled={index === threadPosts.length - 1}
+                              onClick={() => setThreadPosts((prev) => {
+                                const next = [...prev];
+                                [next[index], next[index + 1]] = [next[index + 1], next[index]];
+                                return next;
+                              })}
+                            >
+                              <ArrowDown className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {index === 0 && post.length > 100 && (
+                            <Badge variant="destructive" className="text-xs">
+                              フック100字超過
+                            </Badge>
+                          )}
+                          <CharCounter current={post.length} max={MAX_CHARS} />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 shrink-0"
+                            onClick={() => setThreadPosts((prev) => prev.filter((_, i) => i !== index))}
+                            disabled={threadPosts.length <= 1}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                      <Textarea
+                        placeholder={`投稿${index + 1}の内容`}
+                        value={post}
+                        onChange={(e) =>
+                          setThreadPosts((prev) => {
+                            const next = [...prev];
+                            next[index] = e.target.value;
+                            return next;
+                          })
+                        }
+                        className="min-h-[100px] resize-none"
+                      />
                     </div>
-                    <Textarea
-                      placeholder={`投稿${index + 1}の内容`}
-                      value={post}
-                      onChange={(e) =>
-                        setThreadPosts((prev) => {
-                          const next = [...prev];
-                          next[index] = e.target.value;
-                          return next;
-                        })
-                      }
-                      className="min-h-[120px] resize-none"
-                    />
                   </div>
                 ))}
-                {threadPosts.length < 5 && (
+                {threadPosts.length < 6 && (
                   <Button
                     variant="outline"
                     size="sm"
-                    className="w-full"
+                    className="w-full mt-2"
                     onClick={() => setThreadPosts((prev) => [...prev, ""])}
                   >
                     <Plus className="mr-2 h-4 w-4" />

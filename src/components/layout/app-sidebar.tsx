@@ -19,14 +19,14 @@ import {
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { label: "ダッシュボード", href: "/dashboard", icon: LayoutDashboard },
-  { label: "投稿作成", href: "/compose", icon: PenSquare },
-  { label: "下書き", href: "/drafts", icon: FileText },
-  { label: "予約管理", href: "/schedule", icon: Calendar },
-  { label: "分析", href: "/analytics", icon: BarChart3 },
-  { label: "バズツール", href: "/buzz", icon: Flame },
-  { label: "モデリング", href: "/models", icon: Users },
-  { label: "設定", href: "/settings", icon: Settings },
+  { label: "ダッシュボード", href: "/dashboard", icon: LayoutDashboard, sub: "" },
+  { label: "投稿作成", href: "/compose", icon: PenSquare, sub: "" },
+  { label: "下書き", href: "/drafts", icon: FileText, sub: "" },
+  { label: "予約管理", href: "/schedule", icon: Calendar, sub: "" },
+  { label: "分析", href: "/analytics", icon: BarChart3, sub: "実績を俯瞰" },
+  { label: "バズツール", href: "/buzz", icon: Flame, sub: "バズる型を発見" },
+  { label: "モデリング", href: "/models", icon: Users, sub: "" },
+  { label: "設定", href: "/settings", icon: Settings, sub: "" },
 ];
 
 export function AppSidebar() {
@@ -63,8 +63,13 @@ export function AppSidebar() {
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
               >
-                <item.icon className="h-4 w-4" />
-                {item.label}
+                <item.icon className="h-4 w-4 shrink-0" />
+                <span className="flex flex-col">
+                  <span>{item.label}</span>
+                  {item.sub && (
+                    <span className="text-[10px] leading-tight opacity-60">{item.sub}</span>
+                  )}
+                </span>
               </Link>
             );
           })}

@@ -14,8 +14,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Flame, Target, Zap, Clock, TrendingUp, Heart, MessageCircle, Repeat2, Eye } from "lucide-react";
+import { Flame, Target, Zap, Clock, TrendingUp, Heart, MessageCircle, Repeat2, Eye, Info } from "lucide-react";
 import { calculateBuzzScore, getBuzzRank } from "@/lib/buzz-score";
+import { BuzzExplainer } from "@/components/analytics/buzz-explainer";
 import { getOptimalTimings } from "@/lib/optimal-timing";
 import { analyzeBuzzPatterns } from "@/lib/buzz-patterns";
 import { analyzeHashtags } from "@/lib/hashtag-recommend";
@@ -158,6 +159,8 @@ export default async function BuzzPage() {
         <SyncButton lastSyncedAt={lastSyncedAt} />
       </div>
 
+      <BuzzExplainer />
+
       {!hasData && (
         <Card>
           <CardContent className="py-8">
@@ -173,8 +176,11 @@ export default async function BuzzPage() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
+              <CardTitle className="text-sm font-medium flex items-center gap-1">
                 平均バズスコア
+                <span className="text-muted-foreground" title="(いいね×1 + リプライ×2 + リポスト×3 + 引用×2.5) ÷ 表示数 × 1000">
+                  <Info className="h-3 w-3" />
+                </span>
               </CardTitle>
               <Zap className="h-4 w-4 text-yellow-500" />
             </CardHeader>
@@ -187,8 +193,11 @@ export default async function BuzzPage() {
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
+              <CardTitle className="text-sm font-medium flex items-center gap-1">
                 S・Aランク投稿
+                <span className="text-muted-foreground" title="S: 上位5% / A: 上位5-20% / B: 上位20-50% / C: 50-80% / D: 下位20%">
+                  <Info className="h-3 w-3" />
+                </span>
               </CardTitle>
               <Flame className="h-4 w-4 text-red-500" />
             </CardHeader>
@@ -290,6 +299,21 @@ export default async function BuzzPage() {
                           <span className="flex items-center gap-1"><Eye className="h-3 w-3" /> {post.impressions.toLocaleString()}</span>
                         ) : null}
                       </div>
+                      {/* Engagement breakdown bar */}
+                      {(() => {
+                        const l = post.likes ?? 0;
+                        const r = post.replies ?? 0;
+                        const rp = post.reposts ?? 0;
+                        const total = l + r + rp;
+                        if (total === 0) return null;
+                        return (
+                          <div className="flex h-1.5 rounded-full overflow-hidden mt-1.5" title={`いいね ${l} / リプライ ${r} / リポスト ${rp}`}>
+                            <div className="bg-pink-400" style={{ width: `${(l / total) * 100}%` }} />
+                            <div className="bg-blue-400" style={{ width: `${(r / total) * 100}%` }} />
+                            <div className="bg-green-400" style={{ width: `${(rp / total) * 100}%` }} />
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 ))}
