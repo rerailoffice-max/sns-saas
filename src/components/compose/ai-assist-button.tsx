@@ -27,7 +27,8 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { Sparkles, Loader2, Copy, Check, Link2, Code, ChevronDown, Heart, Save } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Sparkles, Loader2, Copy, Check, Link2, Code, ChevronDown, Heart, Save, FileText } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { HOOK_PATTERNS, THREAD_TEMPLATES } from "@/lib/prompt-engine";
@@ -39,10 +40,14 @@ interface ModelAccount {
 }
 
 const STYLE_PRESETS = [
-  { id: "breaking", name: "速報型", description: "チャエン型の高頻度速報スタイル", models: ["masahirochaen"], hook: "A" },
-  { id: "tips", name: "Tips型", description: "すぐる型の質重視・保存価値スタイル", models: ["SuguruKun_ai"], hook: "G" },
-  { id: "explanation", name: "解説型", description: "くどう型の長文あのー・CTA重視", models: ["kudooo_ai"], hook: "B" },
-  { id: "short", name: "短文型", description: "アオト型の短文リスト・画像活用", models: ["asa_to_ame"], hook: "C" },
+  { id: "breaking", name: "速報型", description: "ニュース速報を素早く共有", models: ["masahirochaen"], hook: "A", threadCount: "2", longForm: false },
+  { id: "archive", name: "保存版まとめ型", description: "保存・ブックマークされやすい", models: ["SuguruKun_ai"], hook: "G", threadCount: "5", longForm: false },
+  { id: "deep", name: "長文解説型", description: "400字超の詳細解説", models: ["kudooo_ai"], hook: "B", threadCount: "4", longForm: true },
+  { id: "tips", name: "Tips型", description: "具体的手順・プロンプト共有", models: ["SuguruKun_ai"], hook: "G", threadCount: "4", longForm: false },
+  { id: "compare", name: "比較・レビュー型", description: "ツール比較・評価", models: ["masahirochaen"], hook: "C", threadCount: "3", longForm: false },
+  { id: "short", name: "短文リスト型", description: "要点だけを短く①②③", models: ["asa_to_ame"], hook: "D", threadCount: "3", longForm: false },
+  { id: "warning", name: "警告・損訴求型", description: "リスク・NG行動を指摘", models: ["kudooo_ai"], hook: "B", threadCount: "4", longForm: true },
+  { id: "question", name: "質問・共感型", description: "コメント・返信を誘発", models: ["asa_to_ame"], hook: "F", threadCount: "2", longForm: false },
 ] as const;
 
 interface AiAssistButtonProps {
@@ -62,8 +67,10 @@ export function AiAssistButton({
   // 統合フォーム
   const [theme, setTheme] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
+  const [arrangePrompt, setArrangePrompt] = useState("");
   const [hookPattern, setHookPattern] = useState("auto");
   const [threadCount, setThreadCount] = useState("auto");
+  const [longForm, setLongForm] = useState(false);
   const [selectedResearchModels, setSelectedResearchModels] = useState<string[]>([]);
   const [showHookCards, setShowHookCards] = useState(false);
 
@@ -90,6 +97,8 @@ export function AiAssistButton({
   const applyPreset = (preset: (typeof STYLE_PRESETS)[number]) => {
     setSelectedResearchModels([...preset.models]);
     setHookPattern(preset.hook);
+    setThreadCount(preset.threadCount);
+    setLongForm(preset.longForm);
   };
 
   const handleGenerate = async () => {
@@ -128,6 +137,13 @@ export function AiAssistButton({
       } else {
         payload.thread_mode = true;
         payload.hook_pattern = hookPattern === "auto" ? undefined : hookPattern;
+      }
+
+      if (longForm) {
+        payload.long_form = true;
+      }
+      if (arrangePrompt.trim()) {
+        payload.arrange_prompt = arrangePrompt.trim();
       }
 
       if (style === "model" && selectedModelId) {
@@ -257,9 +273,29 @@ export function AiAssistButton({
             </div>
           </div>
 
-          {/* スレッド構成選択 */}
+          {/* アレンジ指示（任意） */}
           <div>
-            <label className="text-sm font-medium">投稿構成</label>
+            <label className="text-sm font-medium flex items-center gap-1.5">
+              <FileText className="h-3.5 w-3.5" />
+              アレンジ指示（任意）
+            </label>
+            <Textarea
+              placeholder="例: もっとカジュアルに / 初心者向けに解説 / 比較形式で / 技術者向けに深掘り / 保存版として..."
+              value={arrangePrompt}
+              onChange={(e) => setArrangePrompt(e.target.value)}
+              className="mt-1 min-h-[60px] text-sm"
+            />
+          </div>
+
+          {/* スレッド構成選択 + 長文モード */}
+          <div>
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium">投稿構成</label>
+              <label className="flex items-center gap-2 text-xs cursor-pointer">
+                <span className={longForm ? "text-foreground font-medium" : "text-muted-foreground"}>長文モード</span>
+                <Switch checked={longForm} onCheckedChange={setLongForm} />
+              </label>
+            </div>
             <div className="grid grid-cols-4 gap-1.5 mt-1">
               {[
                 { value: "auto", label: "自動", desc: "AIが判断" },
@@ -288,23 +324,26 @@ export function AiAssistButton({
           {/* スタイルプリセット */}
           <div>
             <label className="text-sm font-medium">スタイルプリセット</label>
-            <div className="grid grid-cols-2 gap-1.5 mt-1">
-              {STYLE_PRESETS.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  onClick={() => applyPreset(preset)}
-                  className={`rounded-md border p-2 text-left text-xs transition-colors hover:bg-accent/50 ${
-                    selectedResearchModels.length === preset.models.length &&
-                    preset.models.every((m) => selectedResearchModels.includes(m))
-                      ? "border-primary bg-accent/30"
-                      : ""
-                  }`}
-                >
-                  <span className="font-medium">{preset.name}</span>
-                  <p className="text-muted-foreground mt-0.5">{preset.description}</p>
-                </button>
-              ))}
+            <div className="grid grid-cols-4 gap-1.5 mt-1">
+              {STYLE_PRESETS.map((preset) => {
+                const isActive =
+                  selectedResearchModels.length === preset.models.length &&
+                  preset.models.every((m) => selectedResearchModels.includes(m)) &&
+                  hookPattern === preset.hook;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => applyPreset(preset)}
+                    className={`rounded-md border p-1.5 text-center text-xs transition-colors hover:bg-accent/50 ${
+                      isActive ? "border-primary bg-accent/30" : ""
+                    }`}
+                  >
+                    <span className="font-medium block">{preset.name}</span>
+                    <span className="text-muted-foreground text-[10px] line-clamp-1">{preset.description}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 

@@ -20,6 +20,8 @@ export interface BuildPromptOptions {
   hookPattern?: string;
   threadCount?: number;
   customInstructions?: string;
+  /** 長文モード: 投稿2以降を400-500字の詳細解説にする */
+  longForm?: boolean;
   /** DB上のanalysis_result（レガシー互換） */
   modelAnalysis?: AnalysisResult | null;
   /** ユーザーの writing_instructions */
@@ -42,6 +44,7 @@ export function buildPostPrompt(options: BuildPromptOptions): string {
     hookPattern,
     threadCount,
     customInstructions,
+    longForm,
     modelAnalysis,
     writingInstructions,
     topPostsContext,
@@ -107,7 +110,10 @@ export function buildPostPrompt(options: BuildPromptOptions): string {
           return `${k}件構成（${t.description}）:\n${t.posts.map((p, i) => `  投稿${i + 1}: ${p.role}（${p.charMin}-${p.charMax}字）`).join("\n")}`;
         })
         .join("\n\n") +
-      "\n\n★ 重要: 記事の情報量が多い場合は投稿2以降を400-500字の長文にすること（@kudooo_ai型: 投稿2平均414字、投稿3平均467字）。ただしXの場合は280字制限を守る。"
+      "\n\n★ 重要: 記事の情報量が多い場合は投稿2以降を400-500字の長文にすること（@kudooo_ai型: 投稿2平均414字、投稿3平均467字）。ただしXの場合は280字制限を守る。" +
+      (longForm && platform !== "x"
+        ? "\n\n★★ 長文モード有効: フック以外の全投稿を400-500字の詳細な長文解説にしてください。具体的な数字・背景・影響を必ず含めること。"
+        : "")
   );
 
   // --- プラットフォーム固有ルール ---

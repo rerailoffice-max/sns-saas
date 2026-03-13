@@ -20,6 +20,8 @@ const requestSchema = z.object({
   selected_models: z.array(z.string()).optional(),
   style: z.enum(["default", "model", "custom"]).optional().default("default"),
   custom_instructions: z.string().max(500).optional(),
+  arrange_prompt: z.string().max(500).optional(),
+  long_form: z.boolean().optional(),
   source_url: z.string().optional(),
   thread_mode: z.boolean().optional().default(false),
   hook_pattern: z.enum(["A", "B", "C", "D", "E", "F", "G"]).optional(),
@@ -60,6 +62,8 @@ export async function POST(request: NextRequest) {
     model_account_id,
     selected_models,
     custom_instructions,
+    arrange_prompt,
+    long_form,
     thread_mode,
     hook_pattern,
     thread_count,
@@ -121,6 +125,7 @@ export async function POST(request: NextRequest) {
         hookPattern: hook_pattern,
         threadCount: thread_count,
         customInstructions: custom_instructions,
+        longForm: long_form,
         modelAnalysis,
         writingInstructions:
           style === "custom"
@@ -160,6 +165,13 @@ export async function POST(request: NextRequest) {
             ? `スレッドは${thread_count}件で構成してください。`
             : "記事の情報量に応じて最適なスレッド数（2-5件）を選んでください。";
 
+        const longFormInstruction = long_form
+          ? "7. ★長文モード: 全投稿（フック除く）を400-500字の詳細解説にしてください。数字・背景・影響を具体的に。"
+          : "";
+        const arrangeInstruction = arrange_prompt
+          ? `8. ★ユーザーのアレンジ指示: ${arrange_prompt}`
+          : "";
+
         userContent = `以下の記事をもとに、バズりやすい投稿を生成してください。
 
 ## 元記事情報
@@ -175,7 +187,9 @@ ${articleBody}
 3. 情報量が多い場合は投稿2以降を400-500字の長文解説にしてください（@kudooo_ai型）
 4. ${threadCountInstruction}
 5. 日本語で、分かりやすく解説
-6. JSON文字列配列で返してください（例: ["投稿1", "投稿2", ...]）`;
+6. JSON文字列配列で返してください（例: ["投稿1", "投稿2", ...])
+${longFormInstruction}
+${arrangeInstruction}`.trim();
       } else {
         const threadCountInstruction = thread_count === 1
           ? "単発の長文投稿（500字以内）を1つ生成してください。"
@@ -183,13 +197,22 @@ ${articleBody}
             ? `スレッドは${thread_count}件で構成してください。`
             : "テーマの情報量に応じて最適なスレッド数（2-5件）を選んでください。";
 
+        const longFormInstructionTheme = long_form
+          ? "5. ★長文モード: 全投稿（フック除く）を400-500字の詳細解説にしてください。数字・背景・影響を具体的に。"
+          : "";
+        const arrangeInstructionTheme = arrange_prompt
+          ? `6. ★ユーザーのアレンジ指示: ${arrange_prompt}`
+          : "";
+
         userContent = `テーマ: ${theme}
 
 ## 生成ルール
 1. 単なる紹介で終わらせず、関連する最新動向・背景知識・具体的な数字を補足し、情報密度の高い投稿にする
 2. 情報量が多い場合は投稿2以降を400-500字の長文解説にしてください
 3. ${threadCountInstruction}
-4. JSON配列（各要素は1投稿文の文字列）で返してください`;
+4. JSON配列（各要素は1投稿文の文字列）で返してください
+${longFormInstructionTheme}
+${arrangeInstructionTheme}`.trim();
       }
 
       const response = await anthropic.messages.create({
