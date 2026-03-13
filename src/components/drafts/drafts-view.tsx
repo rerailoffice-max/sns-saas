@@ -91,7 +91,7 @@ export function DraftsView({ drafts, accountId }: DraftsViewProps) {
               <Card key={draft.id}>
                 <CardContent className="py-4">
                   <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 space-y-2">
+                    <div className="flex-1 min-w-0 space-y-2">
                       <p className="text-sm line-clamp-3">{draft.text}</p>
 
                       <div className="flex items-center gap-2 flex-wrap">

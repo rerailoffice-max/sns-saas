@@ -179,8 +179,8 @@ export default async function AnalyticsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">投稿分析</h1>
+      <div className="flex items-center justify-between gap-2 min-w-0">
+        <h1 className="text-2xl font-bold truncate">投稿分析</h1>
         <SyncButton lastSyncedAt={lastSyncedAt} />
       </div>
 

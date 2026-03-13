@@ -150,10 +150,10 @@ export default async function BuzzPage() {
   return (
     <div className="space-y-6">
       {/* ヘッダー */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Flame className="h-6 w-6 text-orange-500" />
-          <h1 className="text-2xl font-bold">バズツール</h1>
+      <div className="flex items-center justify-between gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <Flame className="h-6 w-6 text-orange-500 shrink-0" />
+          <h1 className="text-2xl font-bold truncate">バズツール</h1>
         </div>
         <SyncButton lastSyncedAt={lastSyncedAt} />
       </div>

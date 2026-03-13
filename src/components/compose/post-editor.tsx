@@ -429,10 +429,10 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2" onPaste={handlePaste}>
+    <div className="grid gap-6 lg:grid-cols-2 min-w-0" onPaste={handlePaste}>
       {/* エディタ */}
-      <div className="space-y-4">
-        <Card>
+      <div className="space-y-4 min-w-0">
+        <Card className="overflow-hidden">
           <CardHeader>
             <CardTitle className="text-base">投稿内容</CardTitle>
           </CardHeader>
@@ -632,7 +632,7 @@ export function PostEditor({ accounts, hashtagSuggestions = [], modelAccounts = 
               {mediaUrls.length > 0 && (
                 <div className="mt-3">
                   <p className="text-sm font-medium mb-2">添付メディア</p>
-                  <div className="flex gap-2 overflow-x-auto">
+                  <div className="flex gap-2 overflow-x-auto overflow-y-hidden max-w-full">
                     {mediaUrls.map((url, i) => {
                       const isVideo = /\.(mp4|mov)$/i.test(url) || url.includes("video");
                       return (

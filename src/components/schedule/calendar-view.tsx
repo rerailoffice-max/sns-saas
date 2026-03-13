@@ -242,8 +242,8 @@ export function CalendarView({
             )}
           </div>
         </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <div className="min-w-[500px]">
+        <CardContent className="overflow-x-auto overflow-y-hidden">
+          <div className="min-w-[500px] md:min-w-0">
           {/* 曜日ヘッダー */}
           <div className="grid grid-cols-7 mb-1">
             {WEEKDAY_LABELS.map((label, i) => (

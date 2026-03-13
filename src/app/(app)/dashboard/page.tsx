@@ -339,9 +339,9 @@ function DashboardView({
 }) {
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-2">
-        <h1 className="text-2xl font-bold">ダッシュボード</h1>
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between gap-2 min-w-0">
+        <h1 className="text-2xl font-bold truncate">ダッシュボード</h1>
+        <div className="flex items-center gap-2 shrink-0">
           <SyncButton lastSyncedAt={lastSyncedAt} />
           <Suspense fallback={null}>
             <PeriodFilter />
@@ -417,7 +417,7 @@ function DashboardView({
       </div>
 
       {/* メインコンテンツ + RSSサイドバー */}
-      <div className="grid gap-6 xl:grid-cols-[1fr_340px]">
+      <div className="grid gap-6 xl:grid-cols-[1fr_340px] min-w-0">
         {/* 左カラム: チャート・投稿・おすすめ時間 */}
         <div className="space-y-4 min-w-0">
           {/* チャートエリア */}
@@ -429,7 +429,7 @@ function DashboardView({
                   直近{periodDays}日間のフォロワー数変化
                 </CardDescription>
               </CardHeader>
-              <CardContent className="h-64">
+              <CardContent className="h-64 overflow-hidden">
                 <FollowersChart data={followerData} />
               </CardContent>
             </Card>
@@ -440,7 +440,7 @@ function DashboardView({
                   いいね・リプライ・リポストの推移
                 </CardDescription>
               </CardHeader>
-              <CardContent className="h-64">
+              <CardContent className="h-64 overflow-hidden">
                 <EngagementChart data={engagementData} />
               </CardContent>
             </Card>

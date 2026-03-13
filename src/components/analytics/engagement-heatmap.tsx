@@ -65,8 +65,8 @@ export function EngagementHeatmap({ data }: EngagementHeatmapProps) {
   }
 
   return (
-    <div className="overflow-x-auto">
-      <div className="min-w-[600px]">
+    <div className="overflow-x-auto overflow-y-hidden">
+      <div className="min-w-[600px] md:min-w-0">
         {/* 時間帯ヘッダー */}
         <div className="flex items-center gap-0.5 mb-1">
           {/* 曜日列の幅分の空白 */}

@@ -16,18 +16,18 @@ export default async function AppLayout({
 }) {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
     return (
-      <div className="flex h-[100dvh]">
+      <div className="flex h-[100dvh] overflow-hidden">
         <div className="hidden md:flex">
           <AppSidebar />
         </div>
-        <div className="flex flex-1 flex-col overflow-hidden">
+        <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
           <Header
             user={{
               email: "demo@example.com",
               name: "デモユーザー",
             }}
           />
-          <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-20 md:pb-6">
+          <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 pb-20 md:pb-6">
             <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
               デモモード — Supabase環境変数が未設定のため、モックデータで表示しています。
             </div>
@@ -49,11 +49,11 @@ export default async function AppLayout({
   }
 
   return (
-    <div className="flex h-[100dvh]">
+    <div className="flex h-[100dvh] overflow-hidden">
       <div className="hidden md:flex">
         <AppSidebar />
       </div>
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
         <Header
           user={{
             email: user.email,
@@ -61,7 +61,7 @@ export default async function AppLayout({
             avatarUrl: user.user_metadata?.avatar_url,
           }}
         />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-20 md:pb-6">{children}</main>
+        <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 pb-20 md:pb-6">{children}</main>
       </div>
       <MobileBottomNav />
     </div>
