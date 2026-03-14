@@ -11,6 +11,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { buildPostPrompt } from "@/lib/prompt-engine";
 import { fetchUrlContent } from "@/lib/url-fetcher";
+import { searchJapaneseArticle } from "@/lib/brave-search";
 
 export const maxDuration = 120;
 
@@ -123,6 +124,19 @@ export async function POST(request: NextRequest) {
             (article.title ?? "").slice(0, 50)
           );
 
+          let jaArticle: { url: string; title: string } | null = null;
+          if (isEnglish) {
+            try {
+              jaArticle = await searchJapaneseArticle(article.title, article.source ?? "");
+            } catch { /* 検索失敗時は英語URLで続行 */ }
+          }
+
+          const urlInstruction = jaArticle
+            ? `1. **投稿1の冒頭**に以下の日本語記事URLを配置してください: ${jaArticle.url}\n   （日本語記事タイトル: ${jaArticle.title}）`
+            : isEnglish
+              ? `1. **投稿1の冒頭**に元URLを配置してください: ${article.link}\n   ※海外メディア（${article.source ?? "海外"}）の報道として紹介してください`
+              : `1. **投稿1の冒頭**にURLを配置してください: ${article.link}`;
+
           const response = await anthropic.messages.create({
             model: "claude-sonnet-4-20250514",
             max_tokens: 3000,
@@ -136,10 +150,11 @@ export async function POST(request: NextRequest) {
 URL: ${article.link}
 概要: ${article.description ?? "なし"}
 ソース: ${article.source ?? "不明"}
+${jaArticle ? `\n## 日本語記事\nタイトル: ${jaArticle.title}\nURL: ${jaArticle.url}` : ""}
 ${articleBody ? `\n## 記事本文（抜粋）\n${articleBody}` : ""}
 
 ## 重要ルール
-1. **投稿1の冒頭**にURLを配置してください${isEnglish ? `。ただし元記事が英語の場合は、同じニュースの日本語記事URL（ITmedia, GIGAZINE, TechCrunch Japan, CNET Japan, Impress Watch等）を代わりに使ってください。日本語記事が見つからない場合のみ元の英語URLを使用` : ""}
+${urlInstruction}
 2. 元記事の情報だけで終わらせず、あなたの知識から**関連する最新動向・背景・具体的な数字・業界への影響**を補完し、元記事より有益で情報密度の高い投稿にしてください
 3. 投稿2以降は詳細解説（400字以上推奨）。具体例・比較・今後の展望を盛り込む
 4. 日本語で、分かりやすく解説

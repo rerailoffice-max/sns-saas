@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { PenSquare, Clock, Newspaper, Bot, ExternalLink, CalendarClock } from "lucide-react";
+import { PenSquare, Clock, Newspaper, Bot, ExternalLink, CalendarClock, CheckCircle, XCircle } from "lucide-react";
 import Link from "next/link";
+import { toast } from "sonner";
 import { DraftDeleteButton } from "@/components/drafts/draft-delete-button";
 import { BatchGenerateDialog } from "@/components/drafts/batch-generate-dialog";
 import { ScheduleDraftDialog } from "@/components/drafts/schedule-draft-dialog";
@@ -30,9 +32,11 @@ interface DraftsViewProps {
   accountId?: string | null;
 }
 
-const statusLabels: Record<string, { label: string; variant: "default" | "secondary" | "outline" }> = {
+const statusLabels: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
   draft: { label: "下書き", variant: "secondary" },
   scheduled: { label: "予約済み", variant: "default" },
+  pending_approval: { label: "承認待ち", variant: "outline" },
+  rejected: { label: "却下", variant: "destructive" },
 };
 
 const sourceLabels: Record<string, string> = {
@@ -42,11 +46,35 @@ const sourceLabels: Record<string, string> = {
 };
 
 export function DraftsView({ drafts, accountId }: DraftsViewProps) {
+  const router = useRouter();
   const [scheduleTarget, setScheduleTarget] = useState<{
     draftId: string;
     accountId: string;
     text: string;
   } | null>(null);
+  const [processingId, setProcessingId] = useState<string | null>(null);
+
+  async function handleApproval(draftId: string, action: "approve" | "reject") {
+    setProcessingId(draftId);
+    try {
+      const newStatus = action === "approve" ? "draft" : "rejected";
+      const res = await fetch(`/api/drafts/${draftId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (res.ok) {
+        toast.success(action === "approve" ? "承認しました" : "却下しました");
+        router.refresh();
+      } else {
+        toast.error("操作に失敗しました");
+      }
+    } catch {
+      toast.error("エラーが発生しました");
+    } finally {
+      setProcessingId(null);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -95,7 +123,10 @@ export function DraftsView({ drafts, accountId }: DraftsViewProps) {
                       <p className="text-sm line-clamp-3">{draft.text}</p>
 
                       <div className="flex items-center gap-2 flex-wrap">
-                        <Badge variant={statusInfo.variant}>
+                        <Badge
+                          variant={statusInfo.variant}
+                          className={draft.status === "pending_approval" ? "border-amber-400 text-amber-600 bg-amber-50" : ""}
+                        >
                           {statusInfo.label}
                         </Badge>
                         {scheduledPost && (
@@ -174,6 +205,30 @@ export function DraftsView({ drafts, accountId }: DraftsViewProps) {
                     </div>
 
                     <div className="flex gap-0.5 md:gap-1 shrink-0">
+                      {draft.status === "pending_approval" && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-10 w-10"
+                            title="承認して下書きに移動"
+                            disabled={processingId === draft.id}
+                            onClick={() => handleApproval(draft.id, "approve")}
+                          >
+                            <CheckCircle className="h-5 w-5 text-green-500" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-10 w-10"
+                            title="却下"
+                            disabled={processingId === draft.id}
+                            onClick={() => handleApproval(draft.id, "reject")}
+                          >
+                            <XCircle className="h-5 w-5 text-destructive" />
+                          </Button>
+                        </>
+                      )}
                       {draft.status === "draft" && !scheduledPost && resolvedAccountId && (
                         <Button
                           variant="ghost"

@@ -80,7 +80,7 @@ export const MODEL_PROFILES: Record<string, ModelProfile> = {
     platform: "x",
     displayName: "チャエン｜デジライズ CEO",
     style: "高頻度速報型",
-    hookStyle: "速報・衝撃型が強い。投稿1の文字数161字（280字の58%）",
+    hookStyle: "速報・朗報・衝撃型が強い。投稿1の文字数161字（280字の58%）",
     threadStructure: "投稿1: 161字 → 短めスレッド（1-2件中心）",
     signature: "動画・メディア添付率82%、外部リンク55%、速度重視",
     avgLikes: 276,
@@ -91,6 +91,7 @@ export const MODEL_PROFILES: Record<string, ModelProfile> = {
     topThemes: [
       "AIツール速報",
       "業界ニュース",
+      "製品アップデート・改善報告（朗報型）",
       "海外事例・バイラルコンテンツ",
       "コーディング・開発ツール",
     ],

@@ -105,6 +105,32 @@ export const HOOK_PATTERNS: HookPattern[] = [
     ],
     frequency: "有益リソース発見時（1日1回まで）",
   },
+  {
+    id: "H",
+    name: "朗報型",
+    description: "良いニュース・改善報告・値下げ・新機能追加に。チャエンが製品アップデートで多用",
+    avgLikes: 280,
+    avgViews: 3200,
+    examples: [
+      "【朗報】Claude Code、ついに日本語対応が大幅強化された。",
+      "これは嬉しい。ChatGPT、無料プランでもGPT-4oが使い放題に。",
+      "朗報です。Gemini API、無料枠が10倍に拡大。個人開発者にはかなりデカい。",
+    ],
+    frequency: "良いニュース・値下げ・機能改善時に随時",
+  },
+  {
+    id: "I",
+    name: "比較レビュー型",
+    description: "2つ以上のツール・サービスを比較。すぐる・チャエン両者が活用。保存率が高い",
+    avgLikes: 450,
+    avgViews: 4500,
+    examples: [
+      "GPT-4o vs Claude 4 vs Gemini 2.5、ガチで比較してみた。",
+      "Cursor vs Windsurf vs Claude Code。AIコーディングツール、結局どれがいい？",
+      "画像生成AI 5つ比較。同じプロンプトで出力してみたら、差がえぐかった。",
+    ],
+    frequency: "ツール比較・ベンチマーク結果発表時",
+  },
 ];
 
 export interface ThreadTemplate {
@@ -205,7 +231,7 @@ export const NG_RULES: string[] = [
   "「震えた」「やばいやつ来た」等の禁止ワード",
   "AI的比喩（「新たな地平」「パラダイムシフト」等）は不自然",
   "絵文字の多用（使うなら1-2個まで）",
-  "同じフックパターンの連続使用（A-Gをローテーション）",
+  "同じフックパターンの連続使用（A-Iをローテーション）",
   "note/外部リンクへの誘導（Threadsではリーチ93%減）",
   "ハッシュタグの多用（Threadsでは逆効果の傾向）",
 ];

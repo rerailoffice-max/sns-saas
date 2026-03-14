@@ -14,6 +14,8 @@ import { translateUntranslatedArticles } from "@/lib/rss/translate";
 import { buildPostPrompt } from "@/lib/prompt-engine";
 import { fetchUrlContent } from "@/lib/url-fetcher";
 import Anthropic from "@anthropic-ai/sdk";
+import { sendApprovalDM } from "@/lib/discord-notify";
+import { searchJapaneseArticle } from "@/lib/brave-search";
 import { NextRequest, NextResponse } from "next/server";
 
 export const maxDuration = 120;
@@ -23,9 +25,12 @@ interface AutoPostSetting {
   profile_id: string;
   is_enabled: boolean;
   account_id: string | null;
-  posts_per_cycle: number;
-  schedule_delay_minutes: number;
+  approval_required: boolean;
+  schedule_start_hour: number;
+  schedule_end_hour: number;
+  schedule_interval_minutes: number;
   rss_feeds: RSSFeed[] | null;
+  x_accounts: string[] | null;
 }
 
 export async function GET(request: NextRequest) {
@@ -113,8 +118,8 @@ async function processUser(
 
   if (!unusedArticles || unusedArticles.length === 0) return;
 
-  // 5. AIがトレンド記事をピックアップ
-  const postsPerCycle = setting.posts_per_cycle ?? 1;
+  // 5. AIがトレンド記事をピックアップ（1回1件）
+  const postsPerCycle = 1;
   const articlesList = unusedArticles
     .map(
       (a, i) =>
@@ -187,6 +192,20 @@ ${articlesList}`,
         (article.title ?? "").slice(0, 50)
       );
 
+      // Brave Search で日本語記事を検索
+      let jaArticle: { url: string; title: string } | null = null;
+      if (isEnglish) {
+        try {
+          jaArticle = await searchJapaneseArticle(article.title, article.source);
+        } catch { /* 検索失敗時は英語URLで続行 */ }
+      }
+
+      const urlInstruction = jaArticle
+        ? `1. **投稿1の冒頭**に以下の日本語記事URLを配置してください: ${jaArticle.url}\n   （日本語記事タイトル: ${jaArticle.title}）`
+        : isEnglish
+          ? `1. **投稿1の冒頭**に元URLを配置してください: ${article.link}\n   ※海外メディア（${article.source}）の報道として紹介してください`
+          : `1. **投稿1の冒頭**にURLを配置してください: ${article.link}`;
+
       const genResponse = await anthropic.messages.create({
         model: "claude-sonnet-4-20250514",
         max_tokens: 3000,
@@ -200,10 +219,11 @@ ${articlesList}`,
 URL: ${article.link}
 概要: ${article.description ?? "なし"}
 ソース: ${article.source}
+${jaArticle ? `\n## 日本語記事\nタイトル: ${jaArticle.title}\nURL: ${jaArticle.url}` : ""}
 ${articleBody ? `\n## 記事本文（抜粋）\n${articleBody}` : ""}
 
 ## 重要ルール
-1. **投稿1の冒頭**にURLを配置${isEnglish ? `。ただし元記事が英語の場合は、同じニュースの日本語記事URL（ITmedia, GIGAZINE, TechCrunch Japan, CNET Japan, Impress Watch等）を代わりに使ってください。日本語記事が見つからない場合のみ元の英語URLを使用` : ""}
+${urlInstruction}
 2. 元記事の情報だけで終わらせず、あなたの知識から**関連する最新動向・背景・具体的な数字・業界への影響**を補完し、元記事より有益で情報密度の高い投稿にしてください
 3. 情報量が多い場合は投稿2以降を400-500字の長文解説にしてください
 4. 日本語で、分かりやすく解説
@@ -232,6 +252,8 @@ ${articleBody ? `\n## 記事本文（抜粋）\n${articleBody}` : ""}
       const mediaUrls: string[] = [];
       if (ogImageUrl) mediaUrls.push(ogImageUrl);
 
+      const draftStatus = setting.approval_required ? "pending_approval" : "draft";
+
       // 下書き保存
       const { data: draft, error: draftError } = await admin
         .from("drafts")
@@ -249,14 +271,27 @@ ${articleBody ? `\n## 記事本文（抜粋）\n${articleBody}` : ""}
             rss_source: article.source,
             rss_title: article.title,
             auto_generated: true,
+            requires_approval: setting.approval_required,
+            ...(jaArticle ? { ja_article_url: jaArticle.url, ja_article_title: jaArticle.title } : {}),
           },
-          status: "draft",
+          status: draftStatus,
         })
         .select()
         .single();
 
       if (draftError || !draft) continue;
       stats.drafts_created++;
+
+      // 承認待ちなら Discord DM で通知
+      if (setting.approval_required) {
+        await sendApprovalDM({
+          draftId: draft.id,
+          threadPosts,
+          articleTitle: article.title,
+          sourceUrl: jaArticle?.url ?? article.link,
+          appUrl: process.env.NEXT_PUBLIC_APP_URL,
+        }).catch((err) => console.error("DM通知エラー:", err));
+      }
 
       // 記事を使用済みに
       await admin

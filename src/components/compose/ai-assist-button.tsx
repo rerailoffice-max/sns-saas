@@ -48,6 +48,7 @@ const STYLE_PRESETS = [
   { id: "short", name: "短文リスト型", description: "要点だけを短く①②③", models: ["asa_to_ame"], hook: "D", threadCount: "3", longForm: false },
   { id: "warning", name: "警告・損訴求型", description: "リスク・NG行動を指摘", models: ["kudooo_ai"], hook: "B", threadCount: "4", longForm: true },
   { id: "question", name: "質問・共感型", description: "コメント・返信を誘発", models: ["asa_to_ame"], hook: "F", threadCount: "2", longForm: false },
+  { id: "goodnews", name: "朗報型", description: "値下げ・改善・新機能の嬉しいニュース", models: ["masahirochaen"], hook: "H", threadCount: "3", longForm: false },
 ] as const;
 
 interface AiAssistButtonProps {

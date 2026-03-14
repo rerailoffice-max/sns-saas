@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { fetchUrlContent } from "@/lib/url-fetcher";
+import { searchJapaneseArticle } from "@/lib/brave-search";
 import { buildPostPrompt, buildSinglePostPrompt } from "@/lib/prompt-engine";
 import type { AnalysisResult } from "@/types/database";
 
@@ -24,7 +25,7 @@ const requestSchema = z.object({
   long_form: z.boolean().optional(),
   source_url: z.string().optional(),
   thread_mode: z.boolean().optional().default(false),
-  hook_pattern: z.enum(["A", "B", "C", "D", "E", "F", "G"]).optional(),
+  hook_pattern: z.enum(["A", "B", "C", "D", "E", "F", "G", "H", "I"]).optional(),
   thread_count: z.number().min(1).max(6).optional(),
   platform: z.enum(["threads", "x"]).optional().default("threads"),
 });
@@ -159,6 +160,19 @@ export async function POST(request: NextRequest) {
           (urlContent.title ?? "").slice(0, 50)
         );
 
+        let jaArticle: { url: string; title: string } | null = null;
+        if (isEnglish) {
+          try {
+            jaArticle = await searchJapaneseArticle(urlContent.title ?? "", fetchedSource);
+          } catch { /* 検索失敗時は英語URLで続行 */ }
+        }
+
+        const urlInstruction = jaArticle
+          ? `1. **投稿1の冒頭**に以下の日本語記事URLを配置してください: ${jaArticle.url}\n   （日本語記事タイトル: ${jaArticle.title}）`
+          : isEnglish
+            ? `1. **投稿1の冒頭**に元URLを配置してください: ${source_url}\n   ※海外メディアの報道として紹介してください`
+            : `1. **投稿1の冒頭**にURLを配置してください: ${source_url}`;
+
         const threadCountInstruction = thread_count === 1
           ? "単発の長文投稿（500字以内）を1つ生成してください。"
           : thread_count
@@ -177,12 +191,13 @@ export async function POST(request: NextRequest) {
 ## 元記事情報
 URL: ${urlContent.url}
 タイトル: ${urlContent.title ?? "（なし）"}
+${jaArticle ? `\n## 日本語記事\nタイトル: ${jaArticle.title}\nURL: ${jaArticle.url}` : ""}
 
 ## 記事本文（抜粋）
 ${articleBody}
 
 ## 生成ルール
-1. **投稿1の冒頭**にURLを配置${isEnglish ? `。ただし元記事が英語の場合は、同じニュースの日本語記事URL（ITmedia, GIGAZINE, TechCrunch Japan, CNET Japan, Impress Watch等）を代わりに使ってください。日本語記事が見つからない場合のみ元の英語URLを使用` : ""}
+${urlInstruction}
 2. 元記事の情報だけで終わらせず、あなたの知識から**関連する最新動向・背景・具体的な数字・業界への影響**を補完し、元記事より有益で情報密度の高い投稿にしてください
 3. 情報量が多い場合は投稿2以降を400-500字の長文解説にしてください（@kudooo_ai型）
 4. ${threadCountInstruction}

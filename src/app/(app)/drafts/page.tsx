@@ -76,7 +76,7 @@ export default async function DraftsPage() {
     `
     )
     .eq("profile_id", user.id)
-    .in("status", ["draft", "scheduled"])
+    .in("status", ["draft", "scheduled", "pending_approval"])
     .order("updated_at", { ascending: false });
 
   const { data: accounts } = await supabase
