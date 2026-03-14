@@ -414,10 +414,10 @@ export function AiAssistButton({
             <label className="text-sm font-medium">参考モデル（複数選択可）</label>
             <div className="grid grid-cols-2 gap-1.5 mt-1">
               {[
-                { username: "kudooo_ai", label: "くどう", sub: "Threads / 解説型" },
-                { username: "asa_to_ame", label: "アオト", sub: "Threads / 短文型" },
-                { username: "masahirochaen", label: "チャエン", sub: "X / 速報型" },
-                { username: "SuguruKun_ai", label: "すぐる", sub: "X / Tips型" },
+                { username: "kudooo_ai",     platform: "Threads", style: "解説型",  desc: "長文・詳細解説" },
+                { username: "asa_to_ame",    platform: "Threads", style: "短文型",  desc: "要点リスト①②③" },
+                { username: "masahirochaen", platform: "X",       style: "速報型",  desc: "ニュース・朗報" },
+                { username: "SuguruKun_ai",  platform: "X",       style: "Tips型", desc: "保存版・まとめ" },
               ].map((m) => (
                 <label
                   key={m.username}
@@ -430,8 +430,11 @@ export function AiAssistButton({
                     onCheckedChange={() => toggleResearchModel(m.username)}
                   />
                   <div>
-                    <span className="font-medium">@{m.username}</span>
-                    <p className="text-muted-foreground">{m.sub}</p>
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <Badge variant="outline" className="text-[10px] px-1 py-0">{m.platform}</Badge>
+                      <span className="font-medium">{m.style}</span>
+                    </div>
+                    <p className="text-muted-foreground">{m.desc}</p>
                   </div>
                 </label>
               ))}
