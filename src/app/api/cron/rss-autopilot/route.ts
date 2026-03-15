@@ -141,7 +141,7 @@ export async function GET(request: NextRequest) {
   }
 
   const admin = createAdminClient();
-  const stats = { users_processed: 0, articles_saved: 0, drafts_created: 0, batches_sent: 0 };
+  const stats: Record<string, unknown> = { users_processed: 0, articles_saved: 0, drafts_created: 0, batches_sent: 0 };
 
   const { data: settings, error: settingsError } = await admin
     .from("auto_post_settings")
@@ -171,7 +171,7 @@ async function processUser(
   admin: ReturnType<typeof createAdminClient>,
   anthropic: Anthropic,
   setting: AutoPostSetting,
-  stats: { users_processed: number; articles_saved: number; drafts_created: number; batches_sent: number },
+  stats: Record<string, unknown>,
   now: Date
 ) {
   stats.users_processed++;
@@ -244,12 +244,19 @@ async function processUser(
     }
   }
 
-  if (!unusedArticles || unusedArticles.length === 0) return;
+  if (!unusedArticles || unusedArticles.length === 0) {
+    stats.debug_stop = "no_unused_articles";
+    return;
+  }
+
+  stats.debug_unused_articles = unusedArticles.length;
 
   // 英語記事を最大10件に絞り、並列でBrave Searchして日本語記事の有無を確認
   const englishArticles = unusedArticles
     .filter((a) => /^[a-zA-Z0-9\s.,!?'"()\-:;]+$/.test((a.title ?? "").slice(0, 50)))
     .slice(0, BRAVE_SEARCH_LIMIT);
+
+  stats.debug_english_articles = englishArticles.length;
 
   type ArticleWithJa = (typeof unusedArticles)[number] & {
     jaArticle: { url: string; title: string };
@@ -270,7 +277,10 @@ async function processUser(
     )
     .map((r) => r.value);
 
+  stats.debug_articles_with_ja = articlesWithJa.length;
+
   if (articlesWithJa.length === 0) {
+    stats.debug_stop = "no_ja_articles_found";
     console.log("日本語記事が見つかった記事が0件のため処理終了");
     return;
   }
@@ -306,7 +316,11 @@ async function processUser(
     console.log(`重複チェック: ${removedCount}件を除外、残り${articlesWithJa.length}件`);
   }
 
+  stats.debug_after_dedup = articlesWithJa.length;
+  stats.debug_removed_dupes = removedCount;
+
   if (articlesWithJa.length < MIN_PICKS) {
+    stats.debug_stop = `below_min_picks_${articlesWithJa.length}_of_${MIN_PICKS}`;
     console.log(`日本語記事（重複除外後）が${articlesWithJa.length}件のみ。最低${MIN_PICKS}件必要なためスキップ`);
     return;
   }
