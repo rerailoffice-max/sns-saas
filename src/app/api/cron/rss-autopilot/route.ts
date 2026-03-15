@@ -147,13 +147,25 @@ async function processUser(
 
   await translateUntranslatedArticles(admin, setting.profile_id, anthropic);
 
-  // 当日JST 0:00を起点に記事を取得。当日記事が足りなければ昨日まで遡る
+  // 過去48時間の記事は is_used をリセット（同日に複数回実行した場合も新鮮な記事を使えるよう）
+  const twoDaysAgoForReset = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  await admin
+    .from("rss_articles")
+    .update({ is_used: false })
+    .eq("profile_id", setting.profile_id)
+    .eq("is_used", true)
+    .gte("published_at", twoDaysAgoForReset);
+  console.log("過去48時間の使用済み記事をリセット");
+
+  // JST当日0:00を起点に記事を取得。当日記事が少なければ過去48時間まで遡る
   const nowJst = new Date(Date.now() + JST_OFFSET);
   const todayStartJst = new Date(Date.UTC(
     nowJst.getUTCFullYear(), nowJst.getUTCMonth(), nowJst.getUTCDate(), 0, 0, 0
   ));
   const todayStartUtc = new Date(todayStartJst.getTime() - JST_OFFSET);
+  const twoDaysAgoUtc = new Date(todayStartUtc.getTime() - 24 * 60 * 60 * 1000);
 
+  // まず当日記事（is_used問わず最新から）を取得
   let { data: unusedArticles } = await admin
     .from("rss_articles")
     .select("*")
@@ -163,20 +175,19 @@ async function processUser(
     .order("published_at", { ascending: false })
     .limit(30);
 
-  // 当日記事が10件未満の場合は昨日まで遡って補完
+  // 当日未使用記事が10件未満なら昨日分も含める
   if (!unusedArticles || unusedArticles.length < 10) {
-    const yesterdayStartUtc = new Date(todayStartUtc.getTime() - 24 * 60 * 60 * 1000);
     const { data: fallbackArticles } = await admin
       .from("rss_articles")
       .select("*")
       .eq("profile_id", setting.profile_id)
       .eq("is_used", false)
-      .gte("published_at", yesterdayStartUtc.toISOString())
+      .gte("published_at", twoDaysAgoUtc.toISOString())
       .order("published_at", { ascending: false })
       .limit(30);
     if (fallbackArticles && fallbackArticles.length > (unusedArticles?.length ?? 0)) {
       unusedArticles = fallbackArticles;
-      console.log(`当日記事不足のため昨日分も含めて取得: ${fallbackArticles.length}件`);
+      console.log(`当日記事不足のため過去48時間分を取得: ${fallbackArticles.length}件`);
     }
   }
 
