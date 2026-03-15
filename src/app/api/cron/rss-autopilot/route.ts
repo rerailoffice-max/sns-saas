@@ -147,15 +147,38 @@ async function processUser(
 
   await translateUntranslatedArticles(admin, setting.profile_id, anthropic);
 
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  const { data: unusedArticles } = await admin
+  // 当日JST 0:00を起点に記事を取得。当日記事が足りなければ昨日まで遡る
+  const nowJst = new Date(Date.now() + JST_OFFSET);
+  const todayStartJst = new Date(Date.UTC(
+    nowJst.getUTCFullYear(), nowJst.getUTCMonth(), nowJst.getUTCDate(), 0, 0, 0
+  ));
+  const todayStartUtc = new Date(todayStartJst.getTime() - JST_OFFSET);
+
+  let { data: unusedArticles } = await admin
     .from("rss_articles")
     .select("*")
     .eq("profile_id", setting.profile_id)
     .eq("is_used", false)
-    .gte("published_at", sevenDaysAgo)
+    .gte("published_at", todayStartUtc.toISOString())
     .order("published_at", { ascending: false })
     .limit(30);
+
+  // 当日記事が10件未満の場合は昨日まで遡って補完
+  if (!unusedArticles || unusedArticles.length < 10) {
+    const yesterdayStartUtc = new Date(todayStartUtc.getTime() - 24 * 60 * 60 * 1000);
+    const { data: fallbackArticles } = await admin
+      .from("rss_articles")
+      .select("*")
+      .eq("profile_id", setting.profile_id)
+      .eq("is_used", false)
+      .gte("published_at", yesterdayStartUtc.toISOString())
+      .order("published_at", { ascending: false })
+      .limit(30);
+    if (fallbackArticles && fallbackArticles.length > (unusedArticles?.length ?? 0)) {
+      unusedArticles = fallbackArticles;
+      console.log(`当日記事不足のため昨日分も含めて取得: ${fallbackArticles.length}件`);
+    }
+  }
 
   if (!unusedArticles || unusedArticles.length === 0) return;
 
