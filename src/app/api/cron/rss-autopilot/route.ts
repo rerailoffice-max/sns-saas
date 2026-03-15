@@ -613,6 +613,7 @@ ${xThreadTexts && xThreadTexts.length > 1 ? "\n※ 元スレッドの構造（�
         draftId: draft.id,
         articleTitle: isXSource ? (article.title as string).slice(0, 80) : (jaArticle?.title ?? article.title as string),
         firstPost: threadPosts[0],
+        threadPosts,
         jaArticleUrl: isXSource ? (article.link as string) : jaArticle?.url,
         slotLabel: slot.slotLabel,
         slotTime: slot.slotTime,

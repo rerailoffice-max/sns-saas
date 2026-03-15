@@ -17,16 +17,19 @@ interface DraftPreview {
 export interface BatchDraftPreview {
   draftId: string;
   articleTitle: string;
-  firstPost: string;        // 投稿1の冒頭200字
-  jaArticleUrl?: string;    // 日本語記事URL
-  slotLabel: string;        // 表示用スロット文字列（例: "14:00"）
-  slotTime: Date;           // 実際の予定時刻
+  firstPost: string;
+  threadPosts: string[];      // 全スレッド投稿
+  jaArticleUrl?: string;
+  slotLabel: string;
+  slotTime: Date;
 }
 
 export interface BatchApprovalResult {
   channelId: string;
   messageId: string;
 }
+
+const THREAD_LABELS = ["フック", "要点", "深掘り", "まとめ"];
 
 async function discordFetch(path: string, options: RequestInit = {}) {
   const token = process.env.DISCORD_BOT_TOKEN;
@@ -46,6 +49,7 @@ async function discordFetch(path: string, options: RequestInit = {}) {
     console.error(`Discord API error ${res.status}: ${body}`);
     return null;
   }
+  if (res.status === 204) return true;
   return res.json();
 }
 
@@ -113,9 +117,37 @@ export async function sendApprovalDM(preview: DraftPreview): Promise<boolean> {
 }
 
 /**
- * 複数の下書きをまとめて1通のDMに送信する（バッチ承認フロー用）
+ * 1件の投稿プレビューをフォーマット
+ * 各スレッド投稿（フック・要点・深掘り・まとめ）を構造化表示
+ */
+function formatPostPreview(p: BatchDraftPreview, index: number): string {
+  const link = p.jaArticleUrl ? `🔗 ${p.jaArticleUrl}` : "";
+
+  const threadLines = p.threadPosts
+    .map((post, i) => {
+      const label = THREAD_LABELS[i] ?? `投稿${i + 1}`;
+      const truncated = post.length > 300 ? post.slice(0, 300) + "..." : post;
+      return `📝 **${i + 1}. ${label}:**\n${truncated}`;
+    })
+    .join("\n\n");
+
+  return [
+    `**━━━ 【${index + 1}】${p.slotLabel}の枠 ━━━**`,
+    `📰 **${p.articleTitle}**`,
+    link,
+    "",
+    threadLines,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
+ * 複数の下書きをまとめてDMに送信する（バッチ承認フロー用）
  * ✅ リアクションで全件承認、❌ で全件却下
- * dev-remote-bot への返信でAI修正指示も受け付ける
+ *
+ * 4000文字制限対策: 投稿を複数メッセージに分割
+ * リアクションは最初のメッセージに追加
  */
 export async function sendBatchApprovalDM(
   previews: BatchDraftPreview[],
@@ -140,41 +172,59 @@ export async function sendBatchApprovalDM(
     minute: "2-digit",
   });
 
-  // 各投稿の概要を列挙
-  const postLines = previews.map((p, i) => {
-    const firstLine = p.firstPost.slice(0, 120).replace(/\n/g, " ");
-    const link = p.jaArticleUrl ? `\n🔗 ${p.jaArticleUrl}` : "";
-    return `**【${i + 1}】${p.slotLabel}の枠 — ${p.articleTitle}**\n「${firstLine}...」${link}`;
-  });
-
   const draftsUrl = appUrl ? `${appUrl}/drafts` : null;
-  const urlLine = draftsUrl ? `\n\n[📋 下書き一覧で確認](${draftsUrl})` : "";
+  const urlLine = draftsUrl ? `[📋 下書き一覧で確認](${draftsUrl})` : "";
 
-  const description = [
+  // ヘッダーメッセージ（リアクション用）
+  const headerContent = [
     `📋 **AI自動投稿 下書き ${previews.length}件** — ${dateLabel}`,
-    "",
-    postLines.join("\n\n"),
     "",
     "─────────────────────",
     "✅ でまとめて承認してカレンダーに予約",
     "❌ で全件却下",
-    "💬 「1を修正して：〇〇」「2について別の記事を検索して」と返信で個別修正",
+    "💬 返信で個別修正（例:「1を修正して：〇〇」）",
     urlLine,
   ]
-    .join("\n")
-    .slice(0, 3900);
+    .filter(Boolean)
+    .join("\n");
 
-  const result = await discordFetch(`/channels/${channelId}/messages`, {
+  const headerResult = await discordFetch(`/channels/${channelId}/messages`, {
     method: "POST",
-    body: JSON.stringify({
-      content: description,
-    }),
+    body: JSON.stringify({ content: headerContent }),
   });
 
-  if (!result?.id) return null;
+  if (!headerResult?.id) return null;
+
+  const mainMessageId = headerResult.id;
+
+  // ✅❌ リアクションを追加
+  await discordFetch(
+    `/channels/${channelId}/messages/${mainMessageId}/reactions/%E2%9C%85/@me`,
+    { method: "PUT" }
+  );
+  await discordFetch(
+    `/channels/${channelId}/messages/${mainMessageId}/reactions/%E2%9D%8C/@me`,
+    { method: "PUT" }
+  );
+
+  // 各投稿を個別メッセージとして送信（文字数制限対策）
+  for (let i = 0; i < previews.length; i++) {
+    const preview = previews[i];
+    const formatted = formatPostPreview(preview, i);
+
+    // 3900文字に収まるよう切り詰め
+    const content = formatted.length > 3900
+      ? formatted.slice(0, 3900) + "\n...（省略）"
+      : formatted;
+
+    await discordFetch(`/channels/${channelId}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    });
+  }
 
   return {
     channelId,
-    messageId: result.id,
+    messageId: mainMessageId,
   };
 }
