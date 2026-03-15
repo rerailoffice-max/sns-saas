@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
           text: body.thread_posts.join("\n\n"),
           hashtags: [],
           source: "manual",
-          status: "publishing",
+          status: "published",
         })
         .select()
         .single();
@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
           text: parsed.data.text,
           hashtags: parsed.data.hashtags ?? [],
           source: "manual",
-          status: "publishing",
+          status: "published",
         })
         .select()
         .single();
