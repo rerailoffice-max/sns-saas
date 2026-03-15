@@ -163,27 +163,34 @@ export async function fetchXPostWithMedia(
       }
     }
 
-    // スレッド全文を取得（conversation_id + from:username）
+    // スレッド全文を取得（conversation_id + from:username、ページネーション対応）
     const xThreadTexts: string[] = [mainTweet.text];
 
     if (mainTweet.conversation_id && authorUsername) {
       try {
-        const searchUrl = new URL(`${X_API_BASE}/tweets/search/recent`);
-        searchUrl.searchParams.set(
-          "query",
-          `conversation_id:${mainTweet.conversation_id} from:${authorUsername}`
-        );
-        searchUrl.searchParams.set("tweet.fields", "text,author_id,created_at");
-        searchUrl.searchParams.set("max_results", "20");
+        const MAX_THREAD_PAGES = 5; // 最大5ページ（100件/ページ × 5 = 最大500投稿）
+        let nextToken: string | null = null;
 
-        const searchRes = await fetch(searchUrl.toString(), {
-          headers,
-          signal: AbortSignal.timeout(TIMEOUT_MS),
-        });
+        for (let page = 0; page < MAX_THREAD_PAGES; page++) {
+          const searchUrl = new URL(`${X_API_BASE}/tweets/search/recent`);
+          searchUrl.searchParams.set(
+            "query",
+            `conversation_id:${mainTweet.conversation_id} from:${authorUsername}`
+          );
+          searchUrl.searchParams.set("tweet.fields", "text,author_id,created_at");
+          searchUrl.searchParams.set("max_results", "100");
+          if (nextToken) searchUrl.searchParams.set("next_token", nextToken);
 
-        if (searchRes.ok) {
+          const searchRes = await fetch(searchUrl.toString(), {
+            headers,
+            signal: AbortSignal.timeout(TIMEOUT_MS),
+          });
+
+          if (!searchRes.ok) break;
+
           const searchData = (await searchRes.json()) as {
             data?: Array<{ id: string; text: string }>;
+            meta?: { next_token?: string; result_count?: number };
           };
 
           if (searchData.data && searchData.data.length > 0) {
@@ -198,6 +205,13 @@ export async function fetchXPostWithMedia(
               .map((t) => t.text);
 
             xThreadTexts.push(...threadReplies);
+          }
+
+          // 次のページがあれば継続、なければ終了
+          if (searchData.meta?.next_token) {
+            nextToken = searchData.meta.next_token;
+          } else {
+            break;
           }
         }
       } catch {
