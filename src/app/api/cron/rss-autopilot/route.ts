@@ -188,12 +188,44 @@ async function processUser(
 
   if (!unusedArticles || unusedArticles.length === 0) return;
 
-  // 5. AIがトレンド記事をピックアップ（1回1件）
+  // 4.5. 英語記事を最大10件に絞り、並列でBrave Searchして日本語記事の有無を確認
+  const BRAVE_SEARCH_LIMIT = 10;
+  const englishArticles = unusedArticles
+    .filter((a) => /^[a-zA-Z0-9\s.,!?'"()\-:;]+$/.test((a.title ?? "").slice(0, 50)))
+    .slice(0, BRAVE_SEARCH_LIMIT);
+
+  type ArticleWithJa = (typeof unusedArticles)[number] & {
+    jaArticle: { url: string; title: string };
+  };
+
+  const searchResults = await Promise.allSettled(
+    englishArticles.map(async (article) => {
+      const ja = await searchJapaneseArticle(article.title, article.source);
+      if (!ja) return null;
+      return { ...article, jaArticle: ja } as ArticleWithJa;
+    })
+  );
+
+  const articlesWithJa = searchResults
+    .filter(
+      (r): r is PromiseFulfilledResult<ArticleWithJa> =>
+        r.status === "fulfilled" && r.value !== null
+    )
+    .map((r) => r.value);
+
+  if (articlesWithJa.length === 0) {
+    console.log("日本語記事が見つかった記事が0件のため処理終了");
+    return;
+  }
+
+  console.log(`日本語記事あり: ${articlesWithJa.length}件 / ${englishArticles.length}件`);
+
+  // 5. 日本語記事が見つかった記事一覧をAIに渡して最もバズりそうな1件を選定
   const postsPerCycle = 1;
-  const articlesList = unusedArticles
+  const articlesList = articlesWithJa
     .map(
       (a, i) =>
-        `${i + 1}. [${a.source}] ${a.title}\n   URL: ${a.link}\n   ${a.description ?? ""}`
+        `${i + 1}. [${a.source}] ${a.title}\n   日本語記事: ${a.jaArticle.title}\n   URL: ${a.link}`
     )
     .join("\n\n");
 
@@ -206,7 +238,7 @@ async function processUser(
         content: `以下のAIニュース記事一覧から、最もバズりそうな記事を${postsPerCycle}件選んでください。
 選定基準: 話題性・インパクト・新規性が高いもの。
 
-番号だけをJSON配列で返してください。例: [1, 5]
+番号だけをJSON配列で返してください。例: [1]
 
 ${articlesList}`,
       },
@@ -224,7 +256,7 @@ ${articlesList}`,
   }
 
   const pickedArticles = pickedIndices
-    .map((i) => unusedArticles[i - 1])
+    .map((i) => articlesWithJa[i - 1])
     .filter(Boolean)
     .slice(0, postsPerCycle);
 
@@ -247,6 +279,7 @@ ${articlesList}`,
   // 7. 各記事についてスレッド投稿を生成→下書き→予約
   for (let i = 0; i < pickedArticles.length; i++) {
     const article = pickedArticles[i];
+    const jaArticle = article.jaArticle;
 
     try {
       // 記事本文・OG画像を取得
@@ -257,24 +290,6 @@ ${articlesList}`,
         articleBody = fetched.text?.slice(0, 3000) ?? "";
         ogImageUrl = fetched.mediaUrls?.[0] ?? "";
       } catch { /* フェッチ失敗時はdescriptionのみで生成 */ }
-
-      const isEnglish = /^[a-zA-Z0-9\s.,!?'"()\-:;]+$/.test(
-        (article.title ?? "").slice(0, 50)
-      );
-
-      // Brave Search で日本語記事を検索
-      let jaArticle: { url: string; title: string } | null = null;
-      if (isEnglish) {
-        try {
-          jaArticle = await searchJapaneseArticle(article.title, article.source);
-        } catch { /* 検索失敗時はスキップ */ }
-
-        // 日本語記事が見つからない英語記事はスキップ
-        if (!jaArticle) {
-          console.log(`日本語記事未発見のためスキップ: ${article.title}`);
-          continue;
-        }
-      }
 
       const genResponse = await anthropic.messages.create({
         model: "claude-sonnet-4-20250514",
