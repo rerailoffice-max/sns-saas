@@ -33,7 +33,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { ChevronLeft, ChevronRight, Clock, AlertCircle, CheckCircle2, Loader2, ExternalLink, Trash2, Save, MessageSquareText } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock, AlertCircle, CheckCircle2, Loader2, ExternalLink, Trash2, Save, MessageSquareText, ArrowUp, ArrowDown } from "lucide-react";
 import { toast } from "sonner";
 import type { ScheduledPost, Draft, SocialAccount, ScheduledPostStatus } from "@/types/database";
 
@@ -401,10 +401,47 @@ function PostDetailContent({
   );
 
   const meta = post.drafts?.metadata as Record<string, unknown> | null;
-  const threadPosts = Array.isArray(meta?.thread_posts)
+  const originalThreadPosts = Array.isArray(meta?.thread_posts)
     ? (meta.thread_posts as string[])
     : null;
+  const [threadPosts, setThreadPosts] = useState<string[] | null>(originalThreadPosts);
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
   const isThread = threadPosts !== null && threadPosts.length >= 2;
+
+  const orderChanged = isThread && originalThreadPosts &&
+    JSON.stringify(threadPosts) !== JSON.stringify(originalThreadPosts);
+
+  const movePost = (index: number, direction: "up" | "down") => {
+    if (!threadPosts) return;
+    const newPosts = [...threadPosts];
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= newPosts.length) return;
+    [newPosts[index], newPosts[targetIndex]] = [newPosts[targetIndex], newPosts[index]];
+    setThreadPosts(newPosts);
+  };
+
+  const handleSaveOrder = async () => {
+    if (!threadPosts) return;
+    setIsSavingOrder(true);
+    try {
+      const res = await fetch(`/api/scheduled-posts/${post.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ thread_posts: threadPosts }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        toast.error(err.error ?? "更新に失敗しました");
+        return;
+      }
+      toast.success("投稿順序を更新しました");
+      onPostChanged();
+    } catch {
+      toast.error("通信エラーが発生しました");
+    } finally {
+      setIsSavingOrder(false);
+    }
+  };
 
   const dateChanged =
     editDate !== formatDate(scheduledDate) ||
@@ -536,15 +573,43 @@ function PostDetailContent({
 
       {/* 投稿テキスト（スレッドは各投稿を分けて表示） */}
       <div>
-        <p className="text-sm font-medium text-muted-foreground mb-1">投稿テキスト</p>
+        <div className="flex items-center justify-between mb-1">
+          <p className="text-sm font-medium text-muted-foreground">投稿テキスト</p>
+          {isPending && orderChanged && (
+            <Button size="sm" variant="outline" onClick={handleSaveOrder} disabled={isSavingOrder}>
+              {isSavingOrder ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Save className="h-3 w-3 mr-1" />}
+              順序を保存
+            </Button>
+          )}
+        </div>
         {isThread ? (
           <div className="space-y-2">
             {threadPosts.map((text, i) => (
               <div key={i} className="bg-muted/50 rounded-lg p-3 relative">
-                <span className="absolute top-1.5 right-2 text-[10px] text-muted-foreground">
-                  {i + 1}/{threadPosts.length}
-                </span>
-                <p className="text-sm whitespace-pre-wrap pr-8">{text}</p>
+                <div className="absolute top-1.5 right-2 flex items-center gap-0.5">
+                  {isPending && (
+                    <>
+                      <button
+                        onClick={() => movePost(i, "up")}
+                        disabled={i === 0}
+                        className="p-0.5 rounded hover:bg-muted disabled:opacity-30"
+                      >
+                        <ArrowUp className="h-3 w-3 text-muted-foreground" />
+                      </button>
+                      <button
+                        onClick={() => movePost(i, "down")}
+                        disabled={i === threadPosts.length - 1}
+                        className="p-0.5 rounded hover:bg-muted disabled:opacity-30"
+                      >
+                        <ArrowDown className="h-3 w-3 text-muted-foreground" />
+                      </button>
+                    </>
+                  )}
+                  <span className="text-[10px] text-muted-foreground ml-1">
+                    {i + 1}/{threadPosts.length}
+                  </span>
+                </div>
+                <p className="text-sm whitespace-pre-wrap pr-16">{text}</p>
               </div>
             ))}
           </div>

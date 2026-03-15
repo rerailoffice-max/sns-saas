@@ -77,7 +77,7 @@ export async function PUT(
     );
   }
 
-  const { scheduled_at, account_id, draft_text } = parsed.data;
+  const { scheduled_at, account_id, draft_text, thread_posts } = parsed.data;
 
   if (account_id) {
     const { data: account } = await supabase
@@ -115,10 +115,20 @@ export async function PUT(
     }
   }
 
-  if (draft_text && post.draft_id) {
+  if (post.draft_id && (draft_text || thread_posts)) {
+    const draftUpdate: Record<string, unknown> = {};
+    if (draft_text) draftUpdate.text = draft_text;
+
+    if (thread_posts) {
+      // metadata.thread_posts を更新し、text も1投稿目に同期
+      const existingMeta = (post.drafts?.metadata as Record<string, unknown>) ?? {};
+      draftUpdate.metadata = { ...existingMeta, thread_posts };
+      draftUpdate.text = thread_posts[0];
+    }
+
     const { error: draftError } = await supabase
       .from("drafts")
-      .update({ text: draft_text })
+      .update(draftUpdate)
       .eq("id", post.draft_id);
 
     if (draftError) {

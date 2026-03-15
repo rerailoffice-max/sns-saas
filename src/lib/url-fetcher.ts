@@ -164,6 +164,7 @@ export async function fetchXPostWithMedia(
     }
 
     // スレッド全文を取得（conversation_id + from:username、ページネーション対応）
+    // スレッド内の画像・動画も全て取得
     const xThreadTexts: string[] = [mainTweet.text];
 
     if (mainTweet.conversation_id && authorUsername) {
@@ -177,7 +178,9 @@ export async function fetchXPostWithMedia(
             "query",
             `conversation_id:${mainTweet.conversation_id} from:${authorUsername}`
           );
-          searchUrl.searchParams.set("tweet.fields", "text,author_id,created_at");
+          searchUrl.searchParams.set("tweet.fields", "text,author_id,created_at,attachments");
+          searchUrl.searchParams.set("expansions", "attachments.media_keys");
+          searchUrl.searchParams.set("media.fields", "url,type,preview_image_url");
           searchUrl.searchParams.set("max_results", "100");
           if (nextToken) searchUrl.searchParams.set("next_token", nextToken);
 
@@ -189,11 +192,33 @@ export async function fetchXPostWithMedia(
           if (!searchRes.ok) break;
 
           const searchData = (await searchRes.json()) as {
-            data?: Array<{ id: string; text: string }>;
+            data?: Array<{ id: string; text: string; attachments?: { media_keys?: string[] } }>;
+            includes?: {
+              media?: Array<{
+                media_key: string;
+                type: string;
+                url?: string;
+                preview_image_url?: string;
+              }>;
+            };
             meta?: { next_token?: string; result_count?: number };
           };
 
           if (searchData.data && searchData.data.length > 0) {
+            // スレッド内のメディアURLを取得
+            if (searchData.includes?.media) {
+              for (const m of searchData.includes.media) {
+                if (m.type === "photo" && m.url) {
+                  mediaUrls.push(m.url);
+                } else if (
+                  (m.type === "video" || m.type === "animated_gif") &&
+                  m.preview_image_url
+                ) {
+                  mediaUrls.push(m.preview_image_url);
+                }
+              }
+            }
+
             // メインツイート以外のスレッド投稿を追加（リプライ除外: @で始まるものを除く）
             const threadReplies = searchData.data
               .filter(
@@ -219,6 +244,9 @@ export async function fetchXPostWithMedia(
       }
     }
 
+    // メディアURLの重複を除去
+    const uniqueMediaUrls = [...new Set(mediaUrls)];
+
     const fullText = xThreadTexts.join("\n\n---\n\n");
 
     return {
@@ -226,7 +254,7 @@ export async function fetchXPostWithMedia(
       title: authorUsername ? `@${authorUsername}` : undefined,
       text: fullText,
       url: originalUrl,
-      mediaUrls,
+      mediaUrls: uniqueMediaUrls,
       xThreadTexts,
     };
   } catch (err) {

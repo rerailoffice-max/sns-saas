@@ -35,6 +35,7 @@ export const updateScheduledPostSchema = z.object({
     .min(1, "投稿テキストは必須です")
     .max(500, "500文字以内で入力してください")
     .optional(),
+  thread_posts: z.array(z.string()).min(1).optional(),
 });
 
 export type UpdateScheduledPostInput = z.infer<typeof updateScheduledPostSchema>;

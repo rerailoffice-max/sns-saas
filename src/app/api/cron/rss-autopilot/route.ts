@@ -1,21 +1,19 @@
 /**
- * RSS + X Trending 自動投稿パイプライン Cronジョブ
+ * RSS自動投稿パイプライン Cronジョブ
  * GET /api/cron/rss-autopilot (Vercel Cron)
  *
- * 1日5回実行（JST 4:00, 8:00, 12:00, 16:00, 20:00）
- * 各回2スロットに投稿予約
+ * JST 20:00 実行 → 21:00/22:00/23:00/00:00 の4スロットに投稿予約
+ * JST  4:00 実行 →  5:00/ 6:00/ 7:00/ 8:00 の4スロットに投稿予約
  *
  * フロー:
  * 1. RSS取得 → rss_articles 保存
- * 2. X trending取得（主要AIアカウントのバズ投稿）→ rss_articles 保存
- * 3. RSS記事: Brave Searchで日本語記事の有無を確認
- *    X記事: 日本語記事検索スキップ（直接パイプラインへ）
- * 4. 過去30日の投稿と重複チェック → 重複記事を除外
- * 5. AIがバズり基準で選出
- * 6. スレッド投稿を生成（フック→要点→深掘り→まとめ構造）
- * 7. status:pending_approval で下書き保存
- * 8. Discord DM 1通に全件まとめて送信
- * 9. auto_post_batchesに記録 → confirm-autopilot cronが✅後に予約登録
+ * 2. 英語記事10件をBrave Searchにかけ日本語記事の有無を確認
+ * 3. 過去30日の投稿と重複チェック → 重複記事を除外
+ * 4. AIが4件以上をバズり基準で全選出
+ * 5. スレッド投稿を生成（フック→要点→深掘り→まとめ構造）
+ * 6. status:pending_approval で下書き保存（scheduled_posts には未登録）
+ * 7. Discord DM 1通に全件まとめて送信（各投稿に時間スロット表示）
+ * 8. auto_post_batchesに記録 → confirm-autopilot cronが✅後に予約登録
  */
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllFeeds, DEFAULT_RSS_FEEDS, type RSSFeed } from "@/lib/rss/parser";
@@ -31,29 +29,35 @@ import {
   filterDuplicatesWithPostedTexts,
 } from "@/lib/duplicate-checker";
 import { downloadAndUploadImages } from "@/lib/media-uploader";
-import { fetchTrendingAIPosts } from "@/lib/x-trending";
 import { NextRequest, NextResponse } from "next/server";
 
 export const maxDuration = 300;
 
 const JST_OFFSET = 9 * 60 * 60 * 1000;
+const MIN_PICKS = 4;
 const BRAVE_SEARCH_LIMIT = 10;
 
 /**
  * 実行時刻（JST）に応じてサイクルのスロット開始時間を決定
- * 1日5回実行（JST 4, 8, 12, 16, 20時）→ 各回2スロット
+ * JST 20時台に実行 → 翌スロット 21,22,23,24(=0)
+ * JST  4時台に実行 → 翌スロット  5, 6, 7, 8
+ * それ以外 → auto_post_settingsの設定に従う（フォールバック）
  */
 function getCycleSlots(nowJstHour: number): number[] | null {
-  if (nowJstHour >= 3 && nowJstHour < 6) return [5, 6];       // 朝 4時実行
-  if (nowJstHour >= 7 && nowJstHour < 10) return [9, 10];     // 午前 8時実行
-  if (nowJstHour >= 11 && nowJstHour < 14) return [13, 14];   // 昼 12時実行
-  if (nowJstHour >= 15 && nowJstHour < 18) return [17, 18];   // 午後 16時実行
-  if (nowJstHour >= 19 && nowJstHour < 22) return [21, 22];   // 夜 20時実行
-  return null;
+  if (nowJstHour >= 19 && nowJstHour < 22) {
+    // 夜サイクル: 21,22,23,0時
+    return [21, 22, 23, 0];
+  }
+  if (nowJstHour >= 3 && nowJstHour < 6) {
+    // 朝サイクル: 5,6,7,8時
+    return [5, 6, 7, 8];
+  }
+  return null; // フォールバック: 設定値を使用
 }
 
 /**
  * サイクルスロット配列から仮予定スロットを生成
+ * 24時(0時)は翌日0時として計算
  */
 function calcCyclePreviewSlots(
   slotHours: number[],
@@ -65,6 +69,7 @@ function calcCyclePreviewSlots(
   const date = nowJst.getUTCDate();
 
   return slotHours.map((hour) => {
+    // 0時は翌日
     const dayOffset = hour === 0 ? 1 : 0;
     const targetDate = new Date(Date.UTC(year, month, date + dayOffset, hour, 0, 0));
     const slotUtc = new Date(targetDate.getTime() - JST_OFFSET);
@@ -78,7 +83,7 @@ function calcCyclePreviewSlots(
 }
 
 /**
- * フォールバック用: 設定値ベースの仮スロット計算
+ * フォールバック用: 設定値ベースの仮スロット計算（DBなし）
  */
 function calcFallbackPreviewSlots(
   count: number,
@@ -137,7 +142,6 @@ export async function GET(request: NextRequest) {
 
   const admin = createAdminClient();
   const stats = { users_processed: 0, articles_saved: 0, drafts_created: 0, batches_sent: 0 };
-  const debug: Record<string, string | number> = {};
 
   const { data: settings, error: settingsError } = await admin
     .from("auto_post_settings")
@@ -154,13 +158,13 @@ export async function GET(request: NextRequest) {
 
   for (const setting of settings as AutoPostSetting[]) {
     try {
-      await processUser(admin, anthropic, setting, stats, debug, now);
+      await processUser(admin, anthropic, setting, stats, now);
     } catch (err) {
       console.error(`RSS autopilot error [${setting.profile_id}]:`, err);
     }
   }
 
-  return NextResponse.json({ message: "完了", stats, debug });
+  return NextResponse.json({ message: "完了", stats });
 }
 
 async function processUser(
@@ -168,18 +172,18 @@ async function processUser(
   anthropic: Anthropic,
   setting: AutoPostSetting,
   stats: { users_processed: number; articles_saved: number; drafts_created: number; batches_sent: number },
-  debug: Record<string, string | number>,
   now: Date
 ) {
   stats.users_processed++;
 
-  // ── Step 1: RSS取得 ──
+  // RSS取得
   const feeds: RSSFeed[] =
     setting.rss_feeds && setting.rss_feeds.length > 0
       ? setting.rss_feeds
       : DEFAULT_RSS_FEEDS;
 
   const articles = await fetchAllFeeds(feeds);
+  if (articles.length === 0) return;
 
   for (const article of articles) {
     const { error } = await admin.from("rss_articles").upsert(
@@ -197,39 +201,9 @@ async function processUser(
     if (!error) stats.articles_saved++;
   }
 
-  // ── Step 2: X trending取得 ──
-  let xPostsSaved = 0;
-  try {
-    const xPosts = await fetchTrendingAIPosts();
-    debug.x_posts_fetched = xPosts.length;
-
-    for (const xPost of xPosts) {
-      const { error } = await admin.from("rss_articles").upsert(
-        {
-          profile_id: setting.profile_id,
-          title: xPost.text.slice(0, 200),
-          link: xPost.tweet_url,
-          description: xPost.text,
-          source: `X:@${xPost.author_username}`,
-          published_at: xPost.created_at,
-          is_used: false,
-        },
-        { onConflict: "link", ignoreDuplicates: true }
-      );
-      if (!error) {
-        stats.articles_saved++;
-        xPostsSaved++;
-      }
-    }
-  } catch (err) {
-    console.error("X trending取得エラー:", err);
-    debug.x_error = String(err);
-  }
-  debug.x_posts_saved = xPostsSaved;
-
   await translateUntranslatedArticles(admin, setting.profile_id, anthropic);
 
-  // 過去48時間の使用済み記事をリセット
+  // 過去48時間の使用済み記事をリセット（同日複数回実行時も新鮮な記事を使えるよう）
   const twoDaysAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString();
   await admin
     .from("rss_articles")
@@ -270,70 +244,41 @@ async function processUser(
     }
   }
 
-  if (!unusedArticles || unusedArticles.length === 0) {
-    debug.stop = "no_unused_articles";
-    return;
-  }
+  if (!unusedArticles || unusedArticles.length === 0) return;
 
-  debug.unused_articles = unusedArticles.length;
-
-  // ── Step 3: 2トラックに分岐 ──
-  const xArticles = unusedArticles.filter((a) => (a.source as string)?.startsWith("X:"));
-  const rssArticles = unusedArticles.filter((a) => !(a.source as string)?.startsWith("X:"));
-
-  debug.unused_rss = rssArticles.length;
-  debug.unused_x = xArticles.length;
-
-  // Track A: RSS記事 → Brave Search で日本語記事を検索
-  const englishArticles = rssArticles
+  // 英語記事を最大10件に絞り、並列でBrave Searchして日本語記事の有無を確認
+  const englishArticles = unusedArticles
     .filter((a) => /^[a-zA-Z0-9\s.,!?'"()\-:;]+$/.test((a.title ?? "").slice(0, 50)))
     .slice(0, BRAVE_SEARCH_LIMIT);
 
-  debug.english_articles = englishArticles.length;
-
-  type ArticleCandidate = (typeof unusedArticles)[number] & {
+  type ArticleWithJa = (typeof unusedArticles)[number] & {
     jaArticle: { url: string; title: string };
-    isXSource?: boolean;
   };
 
   const searchResults = await Promise.allSettled(
     englishArticles.map(async (article) => {
       const ja = await searchJapaneseArticle(article.title, article.source);
       if (!ja) return null;
-      return { ...article, jaArticle: ja, isXSource: false } as ArticleCandidate;
+      return { ...article, jaArticle: ja } as ArticleWithJa;
     })
   );
 
-  const rssWithJa = searchResults
+  let articlesWithJa = searchResults
     .filter(
-      (r): r is PromiseFulfilledResult<ArticleCandidate> =>
+      (r): r is PromiseFulfilledResult<ArticleWithJa> =>
         r.status === "fulfilled" && r.value !== null
     )
     .map((r) => r.value);
 
-  debug.rss_with_ja = rssWithJa.length;
-
-  // Track B: X記事 → Brave Search スキップ、tweet URL をそのまま使用
-  const xCandidates: ArticleCandidate[] = xArticles.map((a) => ({
-    ...a,
-    jaArticle: { url: a.link as string, title: a.title as string },
-    isXSource: true,
-  }));
-
-  // 両トラックをマージ
-  let allCandidates = [...rssWithJa, ...xCandidates];
-
-  debug.candidates_before_dedup = allCandidates.length;
-
-  if (allCandidates.length === 0) {
-    debug.stop = "no_candidates";
-    console.log("候補記事が0件のため処理終了");
+  if (articlesWithJa.length === 0) {
+    console.log("日本語記事が見つかった記事が0件のため処理終了");
     return;
   }
 
-  // ── Step 4: 重複チェック ──
+  // 過去30日の投稿タイトルを取得して重複チェック（DBタイトル + Threads実投稿テキスト）
   const recentTitles = await getRecentPostTitles(admin, setting.profile_id, 30);
 
+  // Threads アカウントのアクセストークンを取得して実投稿テキストも重複チェックに使う
   const { data: accountRow } = await admin
     .from("social_accounts")
     .select("platform, access_token")
@@ -350,41 +295,33 @@ async function processUser(
     console.log(`Threads実投稿から${recentPostedTexts.length}件を重複チェックに追加`);
   }
 
-  const beforeCount = allCandidates.length;
-  allCandidates = filterDuplicatesWithPostedTexts(
-    allCandidates,
+  const beforeCount = articlesWithJa.length;
+  articlesWithJa = filterDuplicatesWithPostedTexts(
+    articlesWithJa,
     recentTitles,
     recentPostedTexts
-  ) as ArticleCandidate[];
-  const removedCount = beforeCount - allCandidates.length;
+  ) as ArticleWithJa[];
+  const removedCount = beforeCount - articlesWithJa.length;
   if (removedCount > 0) {
-    console.log(`重複チェック: ${removedCount}件を除外、残り${allCandidates.length}件`);
+    console.log(`重複チェック: ${removedCount}件を除外、残り${articlesWithJa.length}件`);
   }
 
-  debug.after_dedup = allCandidates.length;
-  debug.removed_dupes = removedCount;
-
-  // MIN_PICKS: 5回/日なので各回1件以上あればOK
-  const minPicks = Math.max(1, Math.min(2, allCandidates.length));
-
-  if (allCandidates.length < minPicks) {
-    debug.stop = `below_min_picks_${allCandidates.length}_of_${minPicks}`;
-    console.log(`候補（重複除外後）が${allCandidates.length}件のみ。最低${minPicks}件必要なためスキップ`);
+  if (articlesWithJa.length < MIN_PICKS) {
+    console.log(`日本語記事（重複除外後）が${articlesWithJa.length}件のみ。最低${MIN_PICKS}件必要なためスキップ`);
     return;
   }
 
-  console.log(`候補（重複除外後）: ${allCandidates.length}件（RSS:${rssWithJa.length}, X:${xCandidates.length}）`);
+  console.log(`日本語記事あり（重複除外後）: ${articlesWithJa.length}件`);
 
-  // ── Step 5: AI選定 ──
-  const articlesList = allCandidates
-    .map((a, i) => {
-      if (a.isXSource) {
-        return `${i + 1}. [${a.source}] ${(a.title as string).slice(0, 150)}\n   URL: ${a.link}`;
-      }
-      return `${i + 1}. [${a.source}] ${a.title}\n   日本語記事: ${a.jaArticle.title}\n   URL: ${a.link}`;
-    })
+  // AIが「バズりそうな記事を全て選出」（最低MIN_PICKS件）
+  const articlesList = articlesWithJa
+    .map(
+      (a, i) =>
+        `${i + 1}. [${a.source}] ${a.title}\n   日本語記事: ${a.jaArticle.title}\n   URL: ${a.link}`
+    )
     .join("\n\n");
 
+  // 過去投稿タイトルを選定プロンプトに含めて重複回避を強化
   const recentTitlesSummary = recentTitles.length > 0
     ? `\n\n【除外条件】以下のトピックと内容がかぶる記事は選ばないこと:\n${recentTitles.slice(0, 20).join("\n")}`
     : "";
@@ -395,17 +332,9 @@ async function processUser(
     messages: [
       {
         role: "user",
-        content: `以下のAIニュース記事・X投稿から、Threadsでバズりそうなものを選んでください。
-最低${minPicks}件は必ず選ぶこと（最大${allCandidates.length}件）。
-
-## 選定優先度（重要）
-1. **最優先: AIインフルエンサーの投稿**（X:@rowancheung, X:@heykahn, X:@_akhaliq, X:@hasantoxr, X:@mattshumer_, X:@omarsar0, X:@AiBreakfast, X:@itsPaulAi, X:@TheRundownAI）
-   → 話題性・インパクト・新規性があるものを積極的に選ぶ
-2. **公式・創設者の投稿**（X:@OpenAI, X:@AnthropicAI, X:@sama, X:@DarioAmodei 等）
-   → **新製品発表・新サービス・新機能のアナウンスのみ**採用
-   → 日常の感想・意見・お祝い・採用情報など製品発表以外は除外
-3. **RSS記事**（日本語記事あり）
-   → インフルエンサー・公式の投稿で十分な場合は優先度を下げてOK
+        content: `以下のAIニュース記事から、Threadsでバズりそうな記事を全て選んでください。
+最低${MIN_PICKS}件は必ず選ぶこと（最大${articlesWithJa.length}件）。
+選定基準: 話題性・インパクト・新規性・日本のAI界隈が盛り上がりそうなもの。
 
 番号をJSON配列で返してください。例: [1, 2, 4, 5, 7]
 
@@ -425,19 +354,17 @@ ${articlesList}${recentTitlesSummary}`,
   }
 
   const pickedArticles = pickedIndices
-    .map((i) => allCandidates[i - 1])
+    .map((i) => articlesWithJa[i - 1])
     .filter(Boolean);
 
-  if (pickedArticles.length < minPicks) {
-    debug.stop = `ai_picked_too_few_${pickedArticles.length}`;
-    console.log(`AIが選出した記事が${pickedArticles.length}件のみ。最低${minPicks}件必要なためスキップ`);
+  if (pickedArticles.length < MIN_PICKS) {
+    console.log(`AIが選出した記事が${pickedArticles.length}件のみ。最低${MIN_PICKS}件必要なためスキップ`);
     return;
   }
 
-  debug.ai_picked = pickedArticles.length;
   console.log(`AIが選出: ${pickedArticles.length}件`);
 
-  // アカウント情報
+  // アカウント情報（platform）は重複チェック時に取得済みの accountRow を再利用
   const platform = (accountRow?.platform as "threads" | "x") ?? "threads";
   const systemPrompt = buildPostPrompt({ platform, threadCount: 4 });
 
@@ -460,84 +387,69 @@ ${articlesList}${recentTitlesSummary}`,
     console.log(`フォールバックスロット使用（JST ${nowJstHour}時実行）`);
   }
 
-  // ── Step 6: スレッド生成 + 下書き保存 ──
+  // 各記事についてスレッド投稿を生成→下書き保存（pending_approval）
   const createdDraftIds: string[] = [];
   const batchPreviews: BatchDraftPreview[] = [];
 
   for (let i = 0; i < pickedArticles.length; i++) {
     const article = pickedArticles[i];
     const jaArticle = article.jaArticle;
-    const isXSource = article.isXSource === true;
     const slot = previewSlots[i] ?? previewSlots[previewSlots.length - 1] ?? {
       slotLabel: `${i + 1}番目`,
       slotTime: new Date(now.getTime() + (i + 1) * 60 * 60 * 1000),
     };
 
     try {
+      // 記事本文・OG画像を取得
+      // X投稿URLの場合はX API v2でスレッド全文+実際の画像URLを取得
       let articleBody = "";
       let rawMediaUrls: string[] = [];
       let xThreadTexts: string[] | undefined;
 
       try {
-        const urlType = detectUrlType(article.link as string);
-        const fetched = await fetchUrlContent(article.link as string);
+        const urlType = detectUrlType(article.link);
+        const fetched = await fetchUrlContent(article.link);
         articleBody = fetched.text?.slice(0, 3000) ?? "";
         rawMediaUrls = fetched.mediaUrls ?? [];
 
+        // X投稿のスレッド全文が取得できた場合は記事本文に補完
         if (urlType.type === "x" && fetched.xThreadTexts && fetched.xThreadTexts.length > 1) {
           xThreadTexts = fetched.xThreadTexts;
+          // スレッド全文をarticleBodyにも追加（AIプロンプトの情報源として使用）
           articleBody = fetched.xThreadTexts
-            .slice(0, 5)
+            .slice(0, 5) // 最大5投稿分
             .join("\n---\n")
             .slice(0, 3000);
         }
       } catch { /* フェッチ失敗時はdescriptionのみで生成 */ }
 
-      // 画像アップロード
+      // 画像をSupabase Storageにアップロード（外部URLのまま使うと403になるリスクを排除）
+      // まず仮のdraft_idを使い、保存後に正式なIDに置き換える
       const tempDraftId = `tmp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
       let uploadedMediaUrls: string[] = rawMediaUrls;
       if (rawMediaUrls.length > 0) {
         try {
           uploadedMediaUrls = await downloadAndUploadImages(rawMediaUrls, tempDraftId);
         } catch {
+          // アップロード失敗は元のURLをフォールバックとして使用
           uploadedMediaUrls = rawMediaUrls;
         }
       }
 
-      const ogImageUrl = uploadedMediaUrls[0] ?? "";
-
+      // スレッド構造強化プロンプト
+      // X投稿ソースの場合はスレッド全文の構造を保持するよう指示を追加
+      const isXSource = detectUrlType(article.link).type === "x";
       const xThreadContext = xThreadTexts && xThreadTexts.length > 1
-        ? `\n## 元スレッド全文（${xThreadTexts.length}投稿）\n${xThreadTexts.map((t, idx) => `投稿${idx + 1}: ${t}`).join("\n\n")}`
+        ? `\n## 元スレッド全文（${xThreadTexts.length}投稿）\n${xThreadTexts.map((t, i) => `投稿${i + 1}: ${t}`).join("\n\n")}`
         : "";
 
-      // X記事とRSS記事でプロンプトを分岐
-      let generationPrompt: string;
-      if (isXSource) {
-        const sourceUrl = article.link as string;
-        generationPrompt = `以下のXのバズ投稿をもとに、Threadsでバズりやすいスレッド投稿を生成してください。
-
-## 元投稿情報
-投稿者: ${article.source}
-URL: ${sourceUrl}
-内容: ${article.description ?? article.title}
-${articleBody && !xThreadContext ? `\n## 投稿本文\n${articleBody}` : ""}${xThreadContext}
-
-## スレッド構造（必ずこの順番で）
-**投稿1（フック）**: 読者が思わず止まる衝撃的な1〜2行 + 改行 + 元投稿URL（${sourceUrl}）
-**投稿2（要点）**: ①②③形式のリスト。具体的な数字・固有名詞・新事実を必ず含める（300〜400字）
-**投稿3（深掘り）**: なぜこれが重要か・業界への影響・日本市場への示唆（300〜450字）
-**投稿4（まとめ）**: 読者への問いかけ or 行動提案（200字以内・省略可）
-${xThreadTexts && xThreadTexts.length > 1 ? "\n※ 元スレッドの構造（各投稿の話の流れ）を保持して日本語に再構成すること" : ""}
-
-## 重要ルール
-- 元投稿の情報だけで終わらせず、関連する最新動向・背景・具体的な数字を補完すること
-- 「〜です」「〜ます」ではなく体言止めや「〜だ」調のカジュアルなトーン
-- AI的な紋切り型表現（「〜の世界」「まさに」「革命」）は禁止
-- 情報源・元投稿URLは投稿1にのみ記載（他の投稿には不要）
-- JSON文字列配列で返してください（例: ["投稿1テキスト", "投稿2テキスト", ...]）`;
-      } else {
-        const refUrl = jaArticle ? jaArticle.url : (article.link as string);
-        generationPrompt = `以下の記事をもとに、バズりやすいThreadsスレッド投稿を生成してください。
+      const genResponse = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 3000,
+        messages: [
+          {
+            role: "user",
+            content: `以下の記事をもとに、バズりやすいThreadsスレッド投稿を生成してください。
 
 ## 元記事情報
 タイトル: ${article.title}
@@ -548,24 +460,20 @@ ${jaArticle ? `\n## 日本語記事\nタイトル: ${jaArticle.title}\nURL: ${ja
 ${articleBody && !xThreadContext ? `\n## 記事本文（抜粋）\n${articleBody}` : ""}${xThreadContext}
 
 ## スレッド構造（必ずこの順番で）
-**投稿1（フック）**: 読者が思わず止まる衝撃的な1〜2行 + 改行 + 日本語記事URL（${refUrl}）
+**投稿1（フック）**: 読者が思わず止まる衝撃的な1〜2行 + 改行 + 日本語記事URL${jaArticle ? `（${jaArticle.url}）` : `（${article.link}）`}
 **投稿2（要点）**: ①②③形式のリスト。具体的な数字・固有名詞・新事実を必ず含める（300〜400字）
 **投稿3（深掘り）**: なぜこれが重要か・業界への影響・日本市場への示唆（300〜450字）
 **投稿4（まとめ）**: 読者への問いかけ or 行動提案（200字以内・省略可）
-${xThreadTexts && xThreadTexts.length > 1 ? "\n※ 元スレッドの構造（各投稿の話の流れ）を保持して日本語に再構成すること" : ""}
+${isXSource && xThreadTexts && xThreadTexts.length > 1 ? "\n※ 元スレッドの構造（各投稿の話の流れ）を保持して日本語に再構成すること" : ""}
 
 ## 重要ルール
 - 元記事の情報だけで終わらせず、関連する最新動向・背景・具体的な数字を補完すること
 - 「〜です」「〜ます」ではなく体言止めや「〜だ」調のカジュアルなトーン
 - AI的な紋切り型表現（「〜の世界」「まさに」「革命」）は禁止
 - 情報源・元記事URLは投稿1にのみ記載（他の投稿には不要）
-- JSON文字列配列で返してください（例: ["投稿1テキスト", "投稿2テキスト", ...]）`;
-      }
-
-      const genResponse = await anthropic.messages.create({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 3000,
-        messages: [{ role: "user", content: generationPrompt }],
+- JSON文字列配列で返してください（例: ["投稿1テキスト", "投稿2テキスト", ...]）`,
+          },
+        ],
         system: systemPrompt,
       });
 
@@ -583,9 +491,10 @@ ${xThreadTexts && xThreadTexts.length > 1 ? "\n※ 元スレッドの構造（�
       const threadPosts = JSON.parse(jsonStr) as string[];
       if (!Array.isArray(threadPosts) || threadPosts.length === 0) continue;
 
-      const mediaUrls: string[] = [];
-      if (ogImageUrl) mediaUrls.push(ogImageUrl);
+      // 全てのアップロード済みメディアURLを使用
+      const mediaUrls: string[] = uploadedMediaUrls.filter(Boolean);
 
+      // 下書き保存（pending_approval: まだカレンダーには登録しない）
       const { data: draft, error: draftError } = await admin
         .from("drafts")
         .insert({
@@ -602,9 +511,8 @@ ${xThreadTexts && xThreadTexts.length > 1 ? "\n※ 元スレッドの構造（�
             rss_source: article.source,
             rss_title: article.title,
             auto_generated: true,
-            is_x_source: isXSource,
             preview_slot: slot.slotTime.toISOString(),
-            ...(jaArticle && !isXSource ? { ja_article_url: jaArticle.url, ja_article_title: jaArticle.title } : {}),
+            ...(jaArticle ? { ja_article_url: jaArticle.url, ja_article_title: jaArticle.title } : {}),
             ...(xThreadTexts && xThreadTexts.length > 1 ? { x_thread_texts: xThreadTexts, x_thread_count: xThreadTexts.length } : {}),
           },
           status: "pending_approval",
@@ -619,10 +527,10 @@ ${xThreadTexts && xThreadTexts.length > 1 ? "\n※ 元スレッドの構造（�
 
       batchPreviews.push({
         draftId: draft.id,
-        articleTitle: isXSource ? (article.title as string).slice(0, 80) : (jaArticle?.title ?? article.title as string),
+        articleTitle: jaArticle?.title ?? article.title,
         firstPost: threadPosts[0],
         threadPosts,
-        jaArticleUrl: isXSource ? (article.link as string) : jaArticle?.url,
+        jaArticleUrl: jaArticle?.url,
         slotLabel: slot.slotLabel,
         slotTime: slot.slotTime,
       });
@@ -633,7 +541,7 @@ ${xThreadTexts && xThreadTexts.length > 1 ? "\n※ 元スレッドの構造（�
         .update({ is_used: true })
         .eq("id", article.id);
     } catch (err) {
-      console.error(`生成エラー [${article.title}]:`, err);
+      console.error(`RSS生成エラー [${article.title}]:`, err);
     }
   }
 
@@ -653,11 +561,12 @@ ${xThreadTexts && xThreadTexts.length > 1 ? "\n※ 元スレッドの構造（�
     return;
   }
 
-  // auto_post_batchesテーブルに記録
+  // auto_post_batchesテーブルに記録（各投稿のDiscordメッセージIDも保存）
   const previewSlotsJson = batchPreviews.map((p) => ({
     draft_id: p.draftId,
     slot_label: p.slotLabel,
     slot_time: p.slotTime.toISOString(),
+    discord_message_id: batchResult.draftMessageMap[p.draftId] ?? null,
   }));
 
   await admin.from("auto_post_batches").insert({

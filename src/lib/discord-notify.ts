@@ -17,19 +17,18 @@ interface DraftPreview {
 export interface BatchDraftPreview {
   draftId: string;
   articleTitle: string;
-  firstPost: string;
-  threadPosts: string[];      // 全スレッド投稿
-  jaArticleUrl?: string;
-  slotLabel: string;
-  slotTime: Date;
+  firstPost: string;        // 投稿1の冒頭200字
+  threadPosts: string[];    // 全スレッド投稿（フック・要点・深掘り・まとめ）
+  jaArticleUrl?: string;    // 日本語記事URL
+  slotLabel: string;        // 表示用スロット文字列（例: "14:00"）
+  slotTime: Date;           // 実際の予定時刻
 }
 
 export interface BatchApprovalResult {
   channelId: string;
   messageId: string;
+  draftMessageMap: Record<string, string>; // draft_id → discord_message_id
 }
-
-const THREAD_LABELS = ["フック", "要点", "深掘り", "まとめ"];
 
 async function discordFetch(path: string, options: RequestInit = {}) {
   const token = process.env.DISCORD_BOT_TOKEN;
@@ -49,7 +48,6 @@ async function discordFetch(path: string, options: RequestInit = {}) {
     console.error(`Discord API error ${res.status}: ${body}`);
     return null;
   }
-  if (res.status === 204) return true;
   return res.json();
 }
 
@@ -116,6 +114,8 @@ export async function sendApprovalDM(preview: DraftPreview): Promise<boolean> {
   return !!result;
 }
 
+const THREAD_LABELS = ["フック", "要点", "深掘り", "まとめ"];
+
 /**
  * 1件の投稿プレビューをフォーマット
  * 各スレッド投稿（フック・要点・深掘り・まとめ）を構造化表示
@@ -143,11 +143,9 @@ function formatPostPreview(p: BatchDraftPreview, index: number): string {
 }
 
 /**
- * 複数の下書きをまとめてDMに送信する（バッチ承認フロー用）
- * ✅ リアクションで全件承認、❌ で全件却下
- *
- * 4000文字制限対策: 投稿を複数メッセージに分割
- * リアクションは最初のメッセージに追加
+ * 複数の下書きをDMに送信する（バッチ承認フロー用）
+ * ヘッダー: ✅全件承認 / ❌全件却下
+ * 各投稿: ✅個別承認 / ❌個別却下
  */
 export async function sendBatchApprovalDM(
   previews: BatchDraftPreview[],
@@ -175,7 +173,7 @@ export async function sendBatchApprovalDM(
   const draftsUrl = appUrl ? `${appUrl}/drafts` : null;
   const urlLine = draftsUrl ? `[📋 下書き一覧で確認](${draftsUrl})` : "";
 
-  // ヘッダーメッセージ（リアクション用）
+  // ヘッダーメッセージ（全件操作用リアクション）
   const headerContent = [
     `📋 **AI自動投稿 下書き ${previews.length}件** — ${dateLabel}`,
     "",
@@ -197,7 +195,7 @@ export async function sendBatchApprovalDM(
 
   const mainMessageId = headerResult.id;
 
-  // ✅❌ リアクションを追加
+  // ヘッダーに ✅❌ リアクションを追加
   await discordFetch(
     `/channels/${channelId}/messages/${mainMessageId}/reactions/%E2%9C%85/@me`,
     { method: "PUT" }
@@ -207,7 +205,9 @@ export async function sendBatchApprovalDM(
     { method: "PUT" }
   );
 
-  // 各投稿を個別メッセージとして送信（文字数制限対策）
+  // 各投稿を個別メッセージとして送信（文字数制限対策 + 個別承認）
+  const draftMessageMap: Record<string, string> = {};
+
   for (let i = 0; i < previews.length; i++) {
     const preview = previews[i];
     const formatted = formatPostPreview(preview, i);
@@ -224,6 +224,8 @@ export async function sendBatchApprovalDM(
 
     // 各投稿にも ✅❌ リアクションを追加
     if (postResult?.id) {
+      draftMessageMap[preview.draftId] = postResult.id;
+
       await discordFetch(
         `/channels/${channelId}/messages/${postResult.id}/reactions/%E2%9C%85/@me`,
         { method: "PUT" }
@@ -238,5 +240,6 @@ export async function sendBatchApprovalDM(
   return {
     channelId,
     messageId: mainMessageId,
+    draftMessageMap,
   };
 }
