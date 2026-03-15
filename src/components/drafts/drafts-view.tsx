@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { PenSquare, Clock, Newspaper, Bot, ExternalLink, CalendarClock, CheckCircle, XCircle } from "lucide-react";
+import { PenSquare, Clock, Newspaper, Bot, ExternalLink, CalendarClock, CheckCircle, XCircle, Zap } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { DraftDeleteButton } from "@/components/drafts/draft-delete-button";
@@ -68,6 +68,28 @@ export function DraftsView({ drafts, accountId }: DraftsViewProps) {
         router.refresh();
       } else {
         toast.error("操作に失敗しました");
+      }
+    } catch {
+      toast.error("エラーが発生しました");
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
+  async function handleInstantPost(draftId: string) {
+    setProcessingId(draftId);
+    try {
+      const res = await fetch(`/api/drafts/${draftId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "instant_post" }),
+      });
+      if (res.ok) {
+        toast.success("1分以内に投稿されます");
+        router.refresh();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error ?? "即時投稿の登録に失敗しました");
       }
     } catch {
       toast.error("エラーが発生しました");
@@ -228,6 +250,18 @@ export function DraftsView({ drafts, accountId }: DraftsViewProps) {
                             <XCircle className="h-5 w-5 text-destructive" />
                           </Button>
                         </>
+                      )}
+                      {draft.status === "scheduled" && scheduledPost && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-10 w-10"
+                          title="今すぐ投稿"
+                          disabled={processingId === draft.id}
+                          onClick={() => handleInstantPost(draft.id)}
+                        >
+                          <Zap className="h-5 w-5 text-yellow-500" />
+                        </Button>
                       )}
                       {draft.status === "draft" && !scheduledPost && resolvedAccountId && (
                         <Button

@@ -11,6 +11,7 @@ interface DraftPreview {
   articleTitle?: string;
   sourceUrl?: string;
   appUrl?: string;
+  scheduledAt?: Date;
 }
 
 async function discordFetch(path: string, options: RequestInit = {}) {
@@ -66,17 +67,24 @@ export async function sendApprovalDM(preview: DraftPreview): Promise<boolean> {
     : "アプリの下書き一覧から確認";
 
   const embed = {
-    title: "AI自動投稿 — 承認待ち",
+    title: "AI自動投稿 — 予約完了",
     description: truncated,
-    color: 0xf59e0b,
+    color: 0x22c55e,
     fields: [
+      ...(preview.scheduledAt
+        ? [{
+            name: "投稿予定時刻",
+            value: preview.scheduledAt.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }),
+            inline: true,
+          }]
+        : []),
       ...(preview.articleTitle
         ? [{ name: "元記事", value: preview.articleTitle, inline: true }]
         : []),
       ...(preview.sourceUrl
         ? [{ name: "ソース", value: preview.sourceUrl, inline: true }]
         : []),
-      { name: "承認方法", value: `[下書き一覧で承認/却下](${approvalUrl})`, inline: false },
+      { name: "今すぐ投稿 / キャンセル", value: `[下書き一覧で操作](${approvalUrl})`, inline: false },
     ],
     footer: { text: `Draft ID: ${preview.draftId}` },
     timestamp: new Date().toISOString(),

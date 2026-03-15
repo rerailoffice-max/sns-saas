@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { NextRequest, NextResponse } from "next/server";
 import { updateDraftSchema } from "@/lib/validations/draft";
 
@@ -56,6 +57,7 @@ export async function PUT(
 const ALLOWED_STATUS_TRANSITIONS: Record<string, string[]> = {
   pending_approval: ["draft", "rejected"],
   rejected: ["draft"],
+  scheduled: ["draft"],
 };
 
 export async function PATCH(
@@ -74,10 +76,48 @@ export async function PATCH(
   }
 
   const body = await request.json();
+
+  // instant_post アクション: scheduled_posts に now() で登録して即時投稿
+  if (body.action === "instant_post") {
+    const { data: existing } = await supabase
+      .from("drafts")
+      .select("id, account_id, status")
+      .eq("id", id)
+      .eq("profile_id", user.id)
+      .single();
+
+    if (!existing) {
+      return NextResponse.json({ error: "下書きが見つかりません" }, { status: 404 });
+    }
+
+    const admin = createAdminClient();
+
+    // 既存の pending scheduled_post をキャンセル
+    await admin
+      .from("scheduled_posts")
+      .update({ status: "failed", last_error: "即時投稿に置き換え" })
+      .eq("draft_id", id)
+      .eq("status", "pending");
+
+    // now() で新規登録（execute-posts cron が1分以内に処理）
+    const { error: insertError } = await admin.from("scheduled_posts").insert({
+      draft_id: id,
+      account_id: existing.account_id,
+      scheduled_at: new Date().toISOString(),
+      status: "pending",
+    });
+
+    if (insertError) {
+      return NextResponse.json({ error: "即時投稿の登録に失敗しました" }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, message: "1分以内に投稿されます" });
+  }
+
   const newStatus = body.status as string;
 
   if (!newStatus) {
-    return NextResponse.json({ error: "status が必要です" }, { status: 400 });
+    return NextResponse.json({ error: "status または action が必要です" }, { status: 400 });
   }
 
   const { data: existing } = await supabase

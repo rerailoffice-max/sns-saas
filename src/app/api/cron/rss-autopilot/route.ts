@@ -6,7 +6,7 @@
  * 1. 有効なユーザーの設定を取得
  * 2. RSSフィードを取得→rss_articlesに保存
  * 3. AIがトレンド記事をピックアップ
- * 4. スレッド投稿を生成→下書き保存（予約はユーザーが手動で行う）
+ * 4. スレッド投稿を生成→下書き保存→scheduled_postsに自動予約
  */
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllFeeds, DEFAULT_RSS_FEEDS, type RSSFeed } from "@/lib/rss/parser";
@@ -19,6 +19,76 @@ import { searchJapaneseArticle } from "@/lib/brave-search";
 import { NextRequest, NextResponse } from "next/server";
 
 export const maxDuration = 120;
+
+/**
+ * 次の空き投稿スロット時間を計算する
+ * - start_hour〜end_hour の範囲内で interval_minutes 間隔のスロットを順番に確認
+ * - 既に scheduled_posts に予約済みのスロットはスキップ
+ * - 今日の空きがなければ翌日の最初のスロット
+ */
+async function calcNextSlot(
+  admin: ReturnType<typeof createAdminClient>,
+  accountId: string,
+  startHour: number,
+  endHour: number,
+  intervalMinutes: number
+): Promise<Date> {
+  // JST オフセット（UTC+9）
+  const JST_OFFSET = 9 * 60 * 60 * 1000;
+  const now = new Date();
+  const nowJst = new Date(now.getTime() + JST_OFFSET);
+
+  // 既存の予約スロットを取得（今日〜2日後まで）
+  const fromDate = new Date(now);
+  const toDate = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
+  const { data: existingPosts } = await admin
+    .from("scheduled_posts")
+    .select("scheduled_at")
+    .eq("account_id", accountId)
+    .in("status", ["pending", "processing"])
+    .gte("scheduled_at", fromDate.toISOString())
+    .lte("scheduled_at", toDate.toISOString());
+
+  const occupiedTimes = new Set(
+    (existingPosts ?? []).map((p) => {
+      const d = new Date(p.scheduled_at);
+      const dJst = new Date(d.getTime() + JST_OFFSET);
+      return `${dJst.getUTCFullYear()}-${dJst.getUTCMonth()}-${dJst.getUTCDate()}-${dJst.getUTCHours()}-${Math.floor(dJst.getUTCMinutes() / intervalMinutes) * intervalMinutes}`;
+    })
+  );
+
+  // 今日から2日分のスロットを順番に確認
+  for (let dayOffset = 0; dayOffset <= 1; dayOffset++) {
+    const checkDate = new Date(nowJst.getTime() + dayOffset * 24 * 60 * 60 * 1000);
+    const year = checkDate.getUTCFullYear();
+    const month = checkDate.getUTCMonth();
+    const date = checkDate.getUTCDate();
+
+    for (let hour = startHour; hour < endHour; hour++) {
+      for (let min = 0; min < 60; min += intervalMinutes) {
+        // 過去のスロットはスキップ
+        const slotJst = new Date(Date.UTC(year, month, date, hour, min, 0));
+        const slotUtc = new Date(slotJst.getTime() - JST_OFFSET);
+        if (slotUtc <= now) continue;
+
+        const slotKey = `${year}-${month}-${date}-${hour}-${min}`;
+        if (!occupiedTimes.has(slotKey)) {
+          return slotUtc;
+        }
+      }
+    }
+  }
+
+  // フォールバック: 翌日の startHour
+  const tomorrow = new Date(nowJst.getTime() + 24 * 60 * 60 * 1000);
+  const fallbackJst = new Date(Date.UTC(
+    tomorrow.getUTCFullYear(),
+    tomorrow.getUTCMonth(),
+    tomorrow.getUTCDate(),
+    startHour, 0, 0
+  ));
+  return new Date(fallbackJst.getTime() - JST_OFFSET);
+}
 
 interface AutoPostSetting {
   id: string;
@@ -197,14 +267,14 @@ ${articlesList}`,
       if (isEnglish) {
         try {
           jaArticle = await searchJapaneseArticle(article.title, article.source);
-        } catch { /* 検索失敗時は英語URLで続行 */ }
-      }
+        } catch { /* 検索失敗時はスキップ */ }
 
-      const urlInstruction = jaArticle
-        ? `1. **投稿1の冒頭**に以下の日本語記事URLを配置してください: ${jaArticle.url}\n   （日本語記事タイトル: ${jaArticle.title}）`
-        : isEnglish
-          ? `1. **投稿1の冒頭**に元URLを配置してください: ${article.link}\n   ※海外メディア（${article.source}）の報道として紹介してください`
-          : `1. **投稿1の冒頭**にURLを配置してください: ${article.link}`;
+        // 日本語記事が見つからない英語記事はスキップ
+        if (!jaArticle) {
+          console.log(`日本語記事未発見のためスキップ: ${article.title}`);
+          continue;
+        }
+      }
 
       const genResponse = await anthropic.messages.create({
         model: "claude-sonnet-4-20250514",
@@ -223,7 +293,7 @@ ${jaArticle ? `\n## 日本語記事\nタイトル: ${jaArticle.title}\nURL: ${ja
 ${articleBody ? `\n## 記事本文（抜粋）\n${articleBody}` : ""}
 
 ## 重要ルール
-${urlInstruction}
+1. **投稿1の冒頭**に${jaArticle ? `以下の日本語記事URLを配置してください: ${jaArticle.url}\n   （日本語記事タイトル: ${jaArticle.title}）` : `URLを配置してください: ${article.link}`}
 2. 元記事の情報だけで終わらせず、あなたの知識から**関連する最新動向・背景・具体的な数字・業界への影響**を補完し、元記事より有益で情報密度の高い投稿にしてください
 3. 情報量が多い場合は投稿2以降を400-500字の長文解説にしてください
 4. 日本語で、分かりやすく解説
@@ -252,9 +322,7 @@ ${urlInstruction}
       const mediaUrls: string[] = [];
       if (ogImageUrl) mediaUrls.push(ogImageUrl);
 
-      const draftStatus = setting.approval_required ? "pending_approval" : "draft";
-
-      // 下書き保存
+      // 下書き保存（scheduled: 予約投稿として保存）
       const { data: draft, error: draftError } = await admin
         .from("drafts")
         .insert({
@@ -271,10 +339,9 @@ ${urlInstruction}
             rss_source: article.source,
             rss_title: article.title,
             auto_generated: true,
-            requires_approval: setting.approval_required,
             ...(jaArticle ? { ja_article_url: jaArticle.url, ja_article_title: jaArticle.title } : {}),
           },
-          status: draftStatus,
+          status: "scheduled",
         })
         .select()
         .single();
@@ -282,16 +349,31 @@ ${urlInstruction}
       if (draftError || !draft) continue;
       stats.drafts_created++;
 
-      // 承認待ちなら Discord DM で通知
-      if (setting.approval_required) {
-        await sendApprovalDM({
-          draftId: draft.id,
-          threadPosts,
-          articleTitle: article.title,
-          sourceUrl: jaArticle?.url ?? article.link,
-          appUrl: process.env.NEXT_PUBLIC_APP_URL,
-        }).catch((err) => console.error("DM通知エラー:", err));
-      }
+      // 次の空き投稿スロットを計算して scheduled_posts に登録
+      const scheduledAt = await calcNextSlot(
+        admin,
+        setting.account_id!,
+        setting.schedule_start_hour ?? 8,
+        setting.schedule_end_hour ?? 22,
+        setting.schedule_interval_minutes ?? 60
+      );
+
+      await admin.from("scheduled_posts").insert({
+        draft_id: draft.id,
+        account_id: setting.account_id,
+        scheduled_at: scheduledAt.toISOString(),
+        status: "pending",
+      });
+
+      // Discord DM で予約確認を通知
+      await sendApprovalDM({
+        draftId: draft.id,
+        threadPosts,
+        articleTitle: article.title,
+        sourceUrl: jaArticle?.url ?? article.link,
+        appUrl: process.env.NEXT_PUBLIC_APP_URL,
+        scheduledAt,
+      }).catch((err) => console.error("DM通知エラー:", err));
 
       // 記事を使用済みに
       await admin
