@@ -2,11 +2,14 @@
  * RSS自動投稿パイプライン Cronジョブ
  * GET /api/cron/rss-autopilot (Vercel Cron)
  *
- * 4時間ごとに実行:
+ * 4時間ごとに実行（JST 8/12/16/20時）:
  * 1. 有効なユーザーの設定を取得
  * 2. RSSフィードを取得→rss_articlesに保存
- * 3. AIがトレンド記事をピックアップ
- * 4. スレッド投稿を生成→下書き保存→scheduled_postsに自動予約
+ * 3. 英語記事10件をBrave Searchにかけ日本語記事の有無を確認
+ * 4. 日本語記事がある記事からAIが4件以上を選出
+ * 5. スレッド投稿を生成→status:pending_approvalで下書き保存（scheduled_postsには登録しない）
+ * 6. Discord DM 1通に全件まとめて送信（各投稿に仮スロット時刻を表示）
+ * 7. auto_post_batchesテーブルに記録 → confirm-autopilot cronが✅リアクション後に予約登録
  */
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllFeeds, DEFAULT_RSS_FEEDS, type RSSFeed } from "@/lib/rss/parser";
@@ -14,80 +17,51 @@ import { translateUntranslatedArticles } from "@/lib/rss/translate";
 import { buildPostPrompt } from "@/lib/prompt-engine";
 import { fetchUrlContent } from "@/lib/url-fetcher";
 import Anthropic from "@anthropic-ai/sdk";
-import { sendApprovalDM } from "@/lib/discord-notify";
+import { sendBatchApprovalDM, type BatchDraftPreview } from "@/lib/discord-notify";
 import { searchJapaneseArticle } from "@/lib/brave-search";
 import { NextRequest, NextResponse } from "next/server";
 
-export const maxDuration = 120;
+export const maxDuration = 300;
+
+const JST_OFFSET = 9 * 60 * 60 * 1000;
+const MIN_PICKS = 4;
+const BRAVE_SEARCH_LIMIT = 10;
 
 /**
- * 次の空き投稿スロット時間を計算する
- * - start_hour〜end_hour の範囲内で interval_minutes 間隔のスロットを順番に確認
- * - 既に scheduled_posts に予約済みのスロットはスキップ
- * - 今日の空きがなければ翌日の最初のスロット
+ * 仮スロット時刻を計算する（DBを参照せず、現在時刻から順番に割り当てる）
+ * 承認前のDM表示用。実際の登録はconfirm-autopilot cronが行う。
  */
-async function calcNextSlot(
-  admin: ReturnType<typeof createAdminClient>,
-  accountId: string,
+function calcPreviewSlots(
+  count: number,
   startHour: number,
   endHour: number,
   intervalMinutes: number
-): Promise<Date> {
-  // JST オフセット（UTC+9）
-  const JST_OFFSET = 9 * 60 * 60 * 1000;
+): Array<{ slotLabel: string; slotTime: Date }> {
   const now = new Date();
   const nowJst = new Date(now.getTime() + JST_OFFSET);
 
-  // 既存の予約スロットを取得（今日〜2日後まで）
-  const fromDate = new Date(now);
-  const toDate = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
-  const { data: existingPosts } = await admin
-    .from("scheduled_posts")
-    .select("scheduled_at")
-    .eq("account_id", accountId)
-    .in("status", ["pending", "processing"])
-    .gte("scheduled_at", fromDate.toISOString())
-    .lte("scheduled_at", toDate.toISOString());
+  const slots: Array<{ slotLabel: string; slotTime: Date }> = [];
 
-  const occupiedTimes = new Set(
-    (existingPosts ?? []).map((p) => {
-      const d = new Date(p.scheduled_at);
-      const dJst = new Date(d.getTime() + JST_OFFSET);
-      return `${dJst.getUTCFullYear()}-${dJst.getUTCMonth()}-${dJst.getUTCDate()}-${dJst.getUTCHours()}-${Math.floor(dJst.getUTCMinutes() / intervalMinutes) * intervalMinutes}`;
-    })
-  );
-
-  // 今日から2日分のスロットを順番に確認
-  for (let dayOffset = 0; dayOffset <= 1; dayOffset++) {
+  for (let dayOffset = 0; dayOffset <= 3 && slots.length < count; dayOffset++) {
     const checkDate = new Date(nowJst.getTime() + dayOffset * 24 * 60 * 60 * 1000);
     const year = checkDate.getUTCFullYear();
     const month = checkDate.getUTCMonth();
     const date = checkDate.getUTCDate();
 
-    for (let hour = startHour; hour < endHour; hour++) {
-      for (let min = 0; min < 60; min += intervalMinutes) {
-        // 過去のスロットはスキップ
+    for (let hour = startHour; hour < endHour && slots.length < count; hour++) {
+      for (let min = 0; min < 60 && slots.length < count; min += intervalMinutes) {
         const slotJst = new Date(Date.UTC(year, month, date, hour, min, 0));
         const slotUtc = new Date(slotJst.getTime() - JST_OFFSET);
         if (slotUtc <= now) continue;
 
-        const slotKey = `${year}-${month}-${date}-${hour}-${min}`;
-        if (!occupiedTimes.has(slotKey)) {
-          return slotUtc;
-        }
+        const dayLabel = dayOffset === 0 ? "今日" : dayOffset === 1 ? "明日" : `${date}日`;
+        const slotLabel = `${dayLabel} ${String(hour).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+        slots.push({ slotLabel, slotTime: slotUtc });
       }
     }
   }
 
-  // フォールバック: 翌日の startHour
-  const tomorrow = new Date(nowJst.getTime() + 24 * 60 * 60 * 1000);
-  const fallbackJst = new Date(Date.UTC(
-    tomorrow.getUTCFullYear(),
-    tomorrow.getUTCMonth(),
-    tomorrow.getUTCDate(),
-    startHour, 0, 0
-  ));
-  return new Date(fallbackJst.getTime() - JST_OFFSET);
+  return slots;
 }
 
 interface AutoPostSetting {
@@ -114,9 +88,8 @@ export async function GET(request: NextRequest) {
   }
 
   const admin = createAdminClient();
-  const stats = { users_processed: 0, articles_saved: 0, drafts_created: 0 };
+  const stats = { users_processed: 0, articles_saved: 0, drafts_created: 0, batches_sent: 0 };
 
-  // 1. 有効な自動投稿設定を取得
   const { data: settings, error: settingsError } = await admin
     .from("auto_post_settings")
     .select("*")
@@ -144,11 +117,10 @@ async function processUser(
   admin: ReturnType<typeof createAdminClient>,
   anthropic: Anthropic,
   setting: AutoPostSetting,
-  stats: { users_processed: number; articles_saved: number; drafts_created: number }
+  stats: { users_processed: number; articles_saved: number; drafts_created: number; batches_sent: number }
 ) {
   stats.users_processed++;
 
-  // 2. RSSフィードを取得
   const feeds: RSSFeed[] =
     setting.rss_feeds && setting.rss_feeds.length > 0
       ? setting.rss_feeds
@@ -157,7 +129,6 @@ async function processUser(
   const articles = await fetchAllFeeds(feeds);
   if (articles.length === 0) return;
 
-  // 3. rss_articlesにupsert (link重複スキップ)
   for (const article of articles) {
     const { error } = await admin.from("rss_articles").upsert(
       {
@@ -174,10 +145,8 @@ async function processUser(
     if (!error) stats.articles_saved++;
   }
 
-  // 3.5. 未翻訳の記事を日本語に一括翻訳
   await translateUntranslatedArticles(admin, setting.profile_id, anthropic);
 
-  // 4. 未使用記事を取得（過去7日以内・最大30件）
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const { data: unusedArticles } = await admin
     .from("rss_articles")
@@ -190,8 +159,7 @@ async function processUser(
 
   if (!unusedArticles || unusedArticles.length === 0) return;
 
-  // 4.5. 英語記事を最大10件に絞り、並列でBrave Searchして日本語記事の有無を確認
-  const BRAVE_SEARCH_LIMIT = 10;
+  // 英語記事を最大10件に絞り、並列でBrave Searchして日本語記事の有無を確認
   const englishArticles = unusedArticles
     .filter((a) => /^[a-zA-Z0-9\s.,!?'"()\-:;]+$/.test((a.title ?? "").slice(0, 50)))
     .slice(0, BRAVE_SEARCH_LIMIT);
@@ -215,15 +183,14 @@ async function processUser(
     )
     .map((r) => r.value);
 
-  if (articlesWithJa.length === 0) {
-    console.log("日本語記事が見つかった記事が0件のため処理終了");
+  if (articlesWithJa.length < MIN_PICKS) {
+    console.log(`日本語記事が${articlesWithJa.length}件のみ。最低${MIN_PICKS}件必要なためスキップ`);
     return;
   }
 
   console.log(`日本語記事あり: ${articlesWithJa.length}件 / ${englishArticles.length}件`);
 
-  // 5. 日本語記事が見つかった記事一覧をAIに渡して最もバズりそうな1件を選定
-  const postsPerCycle = 1;
+  // AIが「バズりそうな記事を全て選出」（最低MIN_PICKS件）
   const articlesList = articlesWithJa
     .map(
       (a, i) =>
@@ -237,10 +204,11 @@ async function processUser(
     messages: [
       {
         role: "user",
-        content: `以下のAIニュース記事一覧から、最もバズりそうな記事を${postsPerCycle}件選んでください。
-選定基準: 話題性・インパクト・新規性が高いもの。
+        content: `以下のAIニュース記事から、Threadsでバズりそうな記事を全て選んでください。
+最低${MIN_PICKS}件は必ず選ぶこと（最大${articlesWithJa.length}件）。
+選定基準: 話題性・インパクト・新規性・日本のAI界隈が盛り上がりそうなもの。
 
-番号だけをJSON配列で返してください。例: [1]
+番号をJSON配列で返してください。例: [1, 2, 4, 5, 7]
 
 ${articlesList}`,
       },
@@ -259,12 +227,16 @@ ${articlesList}`,
 
   const pickedArticles = pickedIndices
     .map((i) => articlesWithJa[i - 1])
-    .filter(Boolean)
-    .slice(0, postsPerCycle);
+    .filter(Boolean);
 
-  if (pickedArticles.length === 0) return;
+  if (pickedArticles.length < MIN_PICKS) {
+    console.log(`AIが選出した記事が${pickedArticles.length}件のみ。最低${MIN_PICKS}件必要なためスキップ`);
+    return;
+  }
 
-  // 6. アカウント情報を取得
+  console.log(`AIが選出: ${pickedArticles.length}件`);
+
+  // アカウント情報を取得
   const { data: account } = await admin
     .from("social_accounts")
     .select("platform")
@@ -272,19 +244,26 @@ ${articlesList}`,
     .single();
 
   const platform = (account?.platform as "threads" | "x") ?? "threads";
+  const systemPrompt = buildPostPrompt({ platform, threadCount: 4 });
 
-  const systemPrompt = buildPostPrompt({
-    platform,
-    threadCount: 4,
-  });
+  // 仮スロット時刻を計算（DMに表示する用）
+  const previewSlots = calcPreviewSlots(
+    pickedArticles.length,
+    setting.schedule_start_hour ?? 8,
+    setting.schedule_end_hour ?? 22,
+    setting.schedule_interval_minutes ?? 60
+  );
 
-  // 7. 各記事についてスレッド投稿を生成→下書き→予約
+  // 各記事についてスレッド投稿を生成→下書き保存（pending_approval）
+  const createdDraftIds: string[] = [];
+  const batchPreviews: BatchDraftPreview[] = [];
+
   for (let i = 0; i < pickedArticles.length; i++) {
     const article = pickedArticles[i];
     const jaArticle = article.jaArticle;
+    const slot = previewSlots[i] ?? { slotLabel: `${i + 1}番目`, slotTime: new Date() };
 
     try {
-      // 記事本文・OG画像を取得
       let articleBody = "";
       let ogImageUrl = "";
       try {
@@ -310,8 +289,8 @@ ${jaArticle ? `\n## 日本語記事\nタイトル: ${jaArticle.title}\nURL: ${ja
 ${articleBody ? `\n## 記事本文（抜粋）\n${articleBody}` : ""}
 
 ## 重要ルール
-1. **投稿1の冒頭**に${jaArticle ? `以下の日本語記事URLを配置してください: ${jaArticle.url}\n   （日本語記事タイトル: ${jaArticle.title}）` : `URLを配置してください: ${article.link}`}
-2. 元記事の情報だけで終わらせず、あなたの知識から**関連する最新動向・背景・具体的な数字・業界への影響**を補完し、元記事より有益で情報密度の高い投稿にしてください
+1. **投稿1の冒頭**に${jaArticle ? `以下の日本語記事URLを配置してください: ${jaArticle.url}` : `URLを配置してください: ${article.link}`}
+2. 元記事の情報だけで終わらせず、関連する最新動向・背景・具体的な数字・業界への影響を補完し、情報密度の高い投稿にしてください
 3. 情報量が多い場合は投稿2以降を400-500字の長文解説にしてください
 4. 日本語で、分かりやすく解説
 5. JSON文字列配列で返してください（例: ["投稿1", "投稿2", ...]）`,
@@ -321,9 +300,7 @@ ${articleBody ? `\n## 記事本文（抜粋）\n${articleBody}` : ""}
       });
 
       const responseText =
-        genResponse.content[0].type === "text"
-          ? genResponse.content[0].text
-          : "";
+        genResponse.content[0].type === "text" ? genResponse.content[0].text : "";
       let jsonStr = responseText;
       const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/);
       if (jsonMatch) {
@@ -339,7 +316,7 @@ ${articleBody ? `\n## 記事本文（抜粋）\n${articleBody}` : ""}
       const mediaUrls: string[] = [];
       if (ogImageUrl) mediaUrls.push(ogImageUrl);
 
-      // 下書き保存（scheduled: 予約投稿として保存）
+      // 下書き保存（pending_approval: まだカレンダーには登録しない）
       const { data: draft, error: draftError } = await admin
         .from("drafts")
         .insert({
@@ -356,41 +333,27 @@ ${articleBody ? `\n## 記事本文（抜粋）\n${articleBody}` : ""}
             rss_source: article.source,
             rss_title: article.title,
             auto_generated: true,
+            preview_slot: slot.slotTime.toISOString(),
             ...(jaArticle ? { ja_article_url: jaArticle.url, ja_article_title: jaArticle.title } : {}),
           },
-          status: "scheduled",
+          status: "pending_approval",
         })
         .select()
         .single();
 
       if (draftError || !draft) continue;
+
       stats.drafts_created++;
+      createdDraftIds.push(draft.id);
 
-      // 次の空き投稿スロットを計算して scheduled_posts に登録
-      const scheduledAt = await calcNextSlot(
-        admin,
-        setting.account_id!,
-        setting.schedule_start_hour ?? 8,
-        setting.schedule_end_hour ?? 22,
-        setting.schedule_interval_minutes ?? 60
-      );
-
-      await admin.from("scheduled_posts").insert({
-        draft_id: draft.id,
-        account_id: setting.account_id,
-        scheduled_at: scheduledAt.toISOString(),
-        status: "pending",
-      });
-
-      // Discord DM で予約確認を通知
-      await sendApprovalDM({
+      batchPreviews.push({
         draftId: draft.id,
-        threadPosts,
-        articleTitle: article.title,
-        sourceUrl: jaArticle?.url ?? article.link,
-        appUrl: process.env.NEXT_PUBLIC_APP_URL,
-        scheduledAt,
-      }).catch((err) => console.error("DM通知エラー:", err));
+        articleTitle: jaArticle?.title ?? article.title,
+        firstPost: threadPosts[0],
+        jaArticleUrl: jaArticle?.url,
+        slotLabel: slot.slotLabel,
+        slotTime: slot.slotTime,
+      });
 
       // 記事を使用済みに
       await admin
@@ -401,4 +364,40 @@ ${articleBody ? `\n## 記事本文（抜粋）\n${articleBody}` : ""}
       console.error(`RSS生成エラー [${article.title}]:`, err);
     }
   }
+
+  if (createdDraftIds.length === 0) return;
+
+  // Discord DM 1通に全件まとめて送信
+  const batchResult = await sendBatchApprovalDM(
+    batchPreviews,
+    process.env.NEXT_PUBLIC_APP_URL
+  ).catch((err) => {
+    console.error("バッチDM通知エラー:", err);
+    return null;
+  });
+
+  if (!batchResult) {
+    console.warn("DM送信失敗。バッチレコードを保存せずに終了");
+    return;
+  }
+
+  // auto_post_batchesテーブルに記録
+  const previewSlotsJson = batchPreviews.map((p) => ({
+    draft_id: p.draftId,
+    slot_label: p.slotLabel,
+    slot_time: p.slotTime.toISOString(),
+  }));
+
+  await admin.from("auto_post_batches").insert({
+    profile_id: setting.profile_id,
+    account_id: setting.account_id,
+    discord_channel_id: batchResult.channelId,
+    discord_message_id: batchResult.messageId,
+    draft_ids: createdDraftIds,
+    preview_slots: previewSlotsJson,
+    status: "waiting",
+  });
+
+  stats.batches_sent++;
+  console.log(`バッチ送信完了: ${createdDraftIds.length}件の下書き, MessageID: ${batchResult.messageId}`);
 }

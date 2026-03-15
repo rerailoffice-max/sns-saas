@@ -14,6 +14,20 @@ interface DraftPreview {
   scheduledAt?: Date;
 }
 
+export interface BatchDraftPreview {
+  draftId: string;
+  articleTitle: string;
+  firstPost: string;        // 投稿1の冒頭200字
+  jaArticleUrl?: string;    // 日本語記事URL
+  slotLabel: string;        // 表示用スロット文字列（例: "14:00"）
+  slotTime: Date;           // 実際の予定時刻
+}
+
+export interface BatchApprovalResult {
+  channelId: string;
+  messageId: string;
+}
+
 async function discordFetch(path: string, options: RequestInit = {}) {
   const token = process.env.DISCORD_BOT_TOKEN;
   if (!token) throw new Error("DISCORD_BOT_TOKEN が未設定です");
@@ -96,4 +110,71 @@ export async function sendApprovalDM(preview: DraftPreview): Promise<boolean> {
   });
 
   return !!result;
+}
+
+/**
+ * 複数の下書きをまとめて1通のDMに送信する（バッチ承認フロー用）
+ * ✅ リアクションで全件承認、❌ で全件却下
+ * dev-remote-bot への返信でAI修正指示も受け付ける
+ */
+export async function sendBatchApprovalDM(
+  previews: BatchDraftPreview[],
+  appUrl?: string
+): Promise<BatchApprovalResult | null> {
+  const ownerId = process.env.DISCORD_OWNER_ID;
+  if (!ownerId || !process.env.DISCORD_BOT_TOKEN) {
+    console.warn("Discord DM通知: DISCORD_BOT_TOKEN or DISCORD_OWNER_ID 未設定");
+    return null;
+  }
+
+  const channelId = await getOrCreateDMChannel(ownerId);
+  if (!channelId) return null;
+
+  const now = new Date();
+  const dateLabel = now.toLocaleDateString("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  // 各投稿の概要を列挙
+  const postLines = previews.map((p, i) => {
+    const firstLine = p.firstPost.slice(0, 120).replace(/\n/g, " ");
+    const link = p.jaArticleUrl ? `\n🔗 ${p.jaArticleUrl}` : "";
+    return `**【${i + 1}】${p.slotLabel}の枠 — ${p.articleTitle}**\n「${firstLine}...」${link}`;
+  });
+
+  const draftsUrl = appUrl ? `${appUrl}/drafts` : null;
+  const urlLine = draftsUrl ? `\n\n[📋 下書き一覧で確認](${draftsUrl})` : "";
+
+  const description = [
+    `📋 **AI自動投稿 下書き ${previews.length}件** — ${dateLabel}`,
+    "",
+    postLines.join("\n\n"),
+    "",
+    "─────────────────────",
+    "✅ でまとめて承認してカレンダーに予約",
+    "❌ で全件却下",
+    "💬 「1を修正して：〇〇」「2について別の記事を検索して」と返信で個別修正",
+    urlLine,
+  ]
+    .join("\n")
+    .slice(0, 3900);
+
+  const result = await discordFetch(`/channels/${channelId}/messages`, {
+    method: "POST",
+    body: JSON.stringify({
+      content: description,
+    }),
+  });
+
+  if (!result?.id) return null;
+
+  return {
+    channelId,
+    messageId: result.id,
+  };
 }
