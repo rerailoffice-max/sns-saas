@@ -46,6 +46,7 @@ interface BraveSearchResponse {
   };
 }
 
+// 英語タイトルから固有名詞・数値を含む主要キーワードを抽出
 function extractKeywords(title: string): string {
   return title
     .replace(/[^\w\s]/g, " ")
@@ -55,6 +56,13 @@ function extractKeywords(title: string): string {
     .join(" ");
 }
 
+// 日本語検索クエリを構築
+// 英語固有名詞をそのまま活かしつつ「報道」を付加することで日本語メディアにヒットさせる
+function buildJapaneseQuery(englishTitle: string): string {
+  const keywords = extractKeywords(englishTitle);
+  return `${keywords} 報道`;
+}
+
 export async function searchJapaneseArticle(
   englishTitle: string,
   source: string
@@ -62,15 +70,14 @@ export async function searchJapaneseArticle(
   const apiKey = process.env.BRAVE_SEARCH_API_KEY;
   if (!apiKey) return null;
 
-  const keywords = extractKeywords(englishTitle);
-  const query = `${keywords} AI`;
+  const query = buildJapaneseQuery(englishTitle);
 
   const params = new URLSearchParams({
     q: query,
     search_lang: "jp",
     country: "jp",
     count: "10",
-    freshness: "pw",
+    // freshness制限なし（日本語記事は英語より掲載が遅れることがあるため）
   });
 
   const res = await fetch(`${BRAVE_API_BASE}?${params}`, {

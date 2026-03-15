@@ -177,12 +177,14 @@ async function processUser(
   // 3.5. 未翻訳の記事を日本語に一括翻訳
   await translateUntranslatedArticles(admin, setting.profile_id, anthropic);
 
-  // 4. 未使用記事を取得
+  // 4. 未使用記事を取得（過去7日以内・最大30件）
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const { data: unusedArticles } = await admin
     .from("rss_articles")
     .select("*")
     .eq("profile_id", setting.profile_id)
     .eq("is_used", false)
+    .gte("published_at", sevenDaysAgo)
     .order("published_at", { ascending: false })
     .limit(30);
 
