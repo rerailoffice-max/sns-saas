@@ -2,14 +2,18 @@
  * RSS自動投稿パイプライン Cronジョブ
  * GET /api/cron/rss-autopilot (Vercel Cron)
  *
- * 4時間ごとに実行（JST 8/12/16/20時）:
- * 1. 有効なユーザーの設定を取得
- * 2. RSSフィードを取得→rss_articlesに保存
- * 3. 英語記事10件をBrave Searchにかけ日本語記事の有無を確認
- * 4. 日本語記事がある記事からAIが4件以上を選出
- * 5. スレッド投稿を生成→status:pending_approvalで下書き保存（scheduled_postsには登録しない）
- * 6. Discord DM 1通に全件まとめて送信（各投稿に仮スロット時刻を表示）
- * 7. auto_post_batchesテーブルに記録 → confirm-autopilot cronが✅リアクション後に予約登録
+ * JST 20:00 実行 → 21:00/22:00/23:00/00:00 の4スロットに投稿予約
+ * JST  4:00 実行 →  5:00/ 6:00/ 7:00/ 8:00 の4スロットに投稿予約
+ *
+ * フロー:
+ * 1. RSS取得 → rss_articles 保存
+ * 2. 英語記事10件をBrave Searchにかけ日本語記事の有無を確認
+ * 3. 過去30日の投稿と重複チェック → 重複記事を除外
+ * 4. AIが4件以上をバズり基準で全選出
+ * 5. スレッド投稿を生成（フック→要点→深掘り→まとめ構造）
+ * 6. status:pending_approval で下書き保存（scheduled_posts には未登録）
+ * 7. Discord DM 1通に全件まとめて送信（各投稿に時間スロット表示）
+ * 8. auto_post_batchesに記録 → confirm-autopilot cronが✅後に予約登録
  */
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllFeeds, DEFAULT_RSS_FEEDS, type RSSFeed } from "@/lib/rss/parser";
@@ -19,6 +23,7 @@ import { fetchUrlContent } from "@/lib/url-fetcher";
 import Anthropic from "@anthropic-ai/sdk";
 import { sendBatchApprovalDM, type BatchDraftPreview } from "@/lib/discord-notify";
 import { searchJapaneseArticle } from "@/lib/brave-search";
+import { getRecentPostTitles, filterDuplicates } from "@/lib/duplicate-checker";
 import { NextRequest, NextResponse } from "next/server";
 
 export const maxDuration = 300;
@@ -28,18 +33,62 @@ const MIN_PICKS = 4;
 const BRAVE_SEARCH_LIMIT = 10;
 
 /**
- * 仮スロット時刻を計算する（DBを参照せず、現在時刻から順番に割り当てる）
- * 承認前のDM表示用。実際の登録はconfirm-autopilot cronが行う。
+ * 実行時刻（JST）に応じてサイクルのスロット開始時間を決定
+ * JST 20時台に実行 → 翌スロット 21,22,23,24(=0)
+ * JST  4時台に実行 → 翌スロット  5, 6, 7, 8
+ * それ以外 → auto_post_settingsの設定に従う（フォールバック）
  */
-function calcPreviewSlots(
+function getCycleSlots(nowJstHour: number): number[] | null {
+  if (nowJstHour >= 19 && nowJstHour < 22) {
+    // 夜サイクル: 21,22,23,0時
+    return [21, 22, 23, 0];
+  }
+  if (nowJstHour >= 3 && nowJstHour < 6) {
+    // 朝サイクル: 5,6,7,8時
+    return [5, 6, 7, 8];
+  }
+  return null; // フォールバック: 設定値を使用
+}
+
+/**
+ * サイクルスロット配列から仮予定スロットを生成
+ * 24時(0時)は翌日0時として計算
+ */
+function calcCyclePreviewSlots(
+  slotHours: number[],
+  baseDate: Date
+): Array<{ slotLabel: string; slotTime: Date }> {
+  const nowJst = new Date(baseDate.getTime() + JST_OFFSET);
+  const year = nowJst.getUTCFullYear();
+  const month = nowJst.getUTCMonth();
+  const date = nowJst.getUTCDate();
+
+  return slotHours.map((hour) => {
+    // 0時は翌日
+    const dayOffset = hour === 0 ? 1 : 0;
+    const targetDate = new Date(Date.UTC(year, month, date + dayOffset, hour, 0, 0));
+    const slotUtc = new Date(targetDate.getTime() - JST_OFFSET);
+
+    const displayHour = hour === 0 ? "24" : String(hour).padStart(2, "0");
+    const dayLabel = dayOffset === 1 ? "明日" : "今日";
+    const slotLabel = `${dayLabel} ${displayHour}:00`;
+
+    return { slotLabel, slotTime: slotUtc };
+  });
+}
+
+/**
+ * フォールバック用: 設定値ベースの仮スロット計算（DBなし）
+ */
+function calcFallbackPreviewSlots(
   count: number,
   startHour: number,
   endHour: number,
-  intervalMinutes: number
+  intervalMinutes: number,
+  baseDate: Date
 ): Array<{ slotLabel: string; slotTime: Date }> {
-  const now = new Date();
+  const now = baseDate;
   const nowJst = new Date(now.getTime() + JST_OFFSET);
-
   const slots: Array<{ slotLabel: string; slotTime: Date }> = [];
 
   for (let dayOffset = 0; dayOffset <= 3 && slots.length < count; dayOffset++) {
@@ -60,7 +109,6 @@ function calcPreviewSlots(
       }
     }
   }
-
   return slots;
 }
 
@@ -101,10 +149,11 @@ export async function GET(request: NextRequest) {
   }
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const now = new Date();
 
   for (const setting of settings as AutoPostSetting[]) {
     try {
-      await processUser(admin, anthropic, setting, stats);
+      await processUser(admin, anthropic, setting, stats, now);
     } catch (err) {
       console.error(`RSS autopilot error [${setting.profile_id}]:`, err);
     }
@@ -117,10 +166,12 @@ async function processUser(
   admin: ReturnType<typeof createAdminClient>,
   anthropic: Anthropic,
   setting: AutoPostSetting,
-  stats: { users_processed: number; articles_saved: number; drafts_created: number; batches_sent: number }
+  stats: { users_processed: number; articles_saved: number; drafts_created: number; batches_sent: number },
+  now: Date
 ) {
   stats.users_processed++;
 
+  // RSS取得
   const feeds: RSSFeed[] =
     setting.rss_feeds && setting.rss_feeds.length > 0
       ? setting.rss_feeds
@@ -147,25 +198,23 @@ async function processUser(
 
   await translateUntranslatedArticles(admin, setting.profile_id, anthropic);
 
-  // 過去48時間の記事は is_used をリセット（同日に複数回実行した場合も新鮮な記事を使えるよう）
-  const twoDaysAgoForReset = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  // 過去48時間の使用済み記事をリセット（同日複数回実行時も新鮮な記事を使えるよう）
+  const twoDaysAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString();
   await admin
     .from("rss_articles")
     .update({ is_used: false })
     .eq("profile_id", setting.profile_id)
     .eq("is_used", true)
-    .gte("published_at", twoDaysAgoForReset);
-  console.log("過去48時間の使用済み記事をリセット");
+    .gte("published_at", twoDaysAgo);
 
-  // JST当日0:00を起点に記事を取得。当日記事が少なければ過去48時間まで遡る
-  const nowJst = new Date(Date.now() + JST_OFFSET);
+  // JST当日0:00基準で記事取得、不足なら過去48時間まで遡る
+  const nowJst = new Date(now.getTime() + JST_OFFSET);
   const todayStartJst = new Date(Date.UTC(
     nowJst.getUTCFullYear(), nowJst.getUTCMonth(), nowJst.getUTCDate(), 0, 0, 0
   ));
   const todayStartUtc = new Date(todayStartJst.getTime() - JST_OFFSET);
   const twoDaysAgoUtc = new Date(todayStartUtc.getTime() - 24 * 60 * 60 * 1000);
 
-  // まず当日記事（is_used問わず最新から）を取得
   let { data: unusedArticles } = await admin
     .from("rss_articles")
     .select("*")
@@ -175,9 +224,8 @@ async function processUser(
     .order("published_at", { ascending: false })
     .limit(30);
 
-  // 当日未使用記事が10件未満なら昨日分も含める
   if (!unusedArticles || unusedArticles.length < 10) {
-    const { data: fallbackArticles } = await admin
+    const { data: fallback } = await admin
       .from("rss_articles")
       .select("*")
       .eq("profile_id", setting.profile_id)
@@ -185,9 +233,9 @@ async function processUser(
       .gte("published_at", twoDaysAgoUtc.toISOString())
       .order("published_at", { ascending: false })
       .limit(30);
-    if (fallbackArticles && fallbackArticles.length > (unusedArticles?.length ?? 0)) {
-      unusedArticles = fallbackArticles;
-      console.log(`当日記事不足のため過去48時間分を取得: ${fallbackArticles.length}件`);
+    if (fallback && fallback.length > (unusedArticles?.length ?? 0)) {
+      unusedArticles = fallback;
+      console.log(`当日記事不足のため過去48時間分を取得: ${fallback.length}件`);
     }
   }
 
@@ -210,19 +258,33 @@ async function processUser(
     })
   );
 
-  const articlesWithJa = searchResults
+  let articlesWithJa = searchResults
     .filter(
       (r): r is PromiseFulfilledResult<ArticleWithJa> =>
         r.status === "fulfilled" && r.value !== null
     )
     .map((r) => r.value);
 
-  if (articlesWithJa.length < MIN_PICKS) {
-    console.log(`日本語記事が${articlesWithJa.length}件のみ。最低${MIN_PICKS}件必要なためスキップ`);
+  if (articlesWithJa.length === 0) {
+    console.log("日本語記事が見つかった記事が0件のため処理終了");
     return;
   }
 
-  console.log(`日本語記事あり: ${articlesWithJa.length}件 / ${englishArticles.length}件`);
+  // 過去30日の投稿タイトルを取得して重複チェック
+  const recentTitles = await getRecentPostTitles(admin, setting.profile_id, 30);
+  const beforeCount = articlesWithJa.length;
+  articlesWithJa = filterDuplicates(articlesWithJa, recentTitles) as ArticleWithJa[];
+  const removedCount = beforeCount - articlesWithJa.length;
+  if (removedCount > 0) {
+    console.log(`重複チェック: ${removedCount}件を除外、残り${articlesWithJa.length}件`);
+  }
+
+  if (articlesWithJa.length < MIN_PICKS) {
+    console.log(`日本語記事（重複除外後）が${articlesWithJa.length}件のみ。最低${MIN_PICKS}件必要なためスキップ`);
+    return;
+  }
+
+  console.log(`日本語記事あり（重複除外後）: ${articlesWithJa.length}件`);
 
   // AIが「バズりそうな記事を全て選出」（最低MIN_PICKS件）
   const articlesList = articlesWithJa
@@ -231,6 +293,11 @@ async function processUser(
         `${i + 1}. [${a.source}] ${a.title}\n   日本語記事: ${a.jaArticle.title}\n   URL: ${a.link}`
     )
     .join("\n\n");
+
+  // 過去投稿タイトルを選定プロンプトに含めて重複回避を強化
+  const recentTitlesSummary = recentTitles.length > 0
+    ? `\n\n【除外条件】以下のトピックと内容がかぶる記事は選ばないこと:\n${recentTitles.slice(0, 20).join("\n")}`
+    : "";
 
   const pickResponse = await anthropic.messages.create({
     model: "claude-sonnet-4-20250514",
@@ -244,7 +311,7 @@ async function processUser(
 
 番号をJSON配列で返してください。例: [1, 2, 4, 5, 7]
 
-${articlesList}`,
+${articlesList}${recentTitlesSummary}`,
       },
     ],
   });
@@ -280,13 +347,24 @@ ${articlesList}`,
   const platform = (account?.platform as "threads" | "x") ?? "threads";
   const systemPrompt = buildPostPrompt({ platform, threadCount: 4 });
 
-  // 仮スロット時刻を計算（DMに表示する用）
-  const previewSlots = calcPreviewSlots(
-    pickedArticles.length,
-    setting.schedule_start_hour ?? 8,
-    setting.schedule_end_hour ?? 22,
-    setting.schedule_interval_minutes ?? 60
-  );
+  // 実行時刻に応じてサイクルスロットを決定
+  const nowJstHour = nowJst.getUTCHours();
+  const cycleSlots = getCycleSlots(nowJstHour);
+
+  let previewSlots: Array<{ slotLabel: string; slotTime: Date }>;
+  if (cycleSlots) {
+    previewSlots = calcCyclePreviewSlots(cycleSlots, now);
+    console.log(`サイクルスロット（JST ${nowJstHour}時実行）: ${previewSlots.map(s => s.slotLabel).join(", ")}`);
+  } else {
+    previewSlots = calcFallbackPreviewSlots(
+      pickedArticles.length,
+      setting.schedule_start_hour ?? 8,
+      setting.schedule_end_hour ?? 22,
+      setting.schedule_interval_minutes ?? 60,
+      now
+    );
+    console.log(`フォールバックスロット使用（JST ${nowJstHour}時実行）`);
+  }
 
   // 各記事についてスレッド投稿を生成→下書き保存（pending_approval）
   const createdDraftIds: string[] = [];
@@ -295,24 +373,30 @@ ${articlesList}`,
   for (let i = 0; i < pickedArticles.length; i++) {
     const article = pickedArticles[i];
     const jaArticle = article.jaArticle;
-    const slot = previewSlots[i] ?? { slotLabel: `${i + 1}番目`, slotTime: new Date() };
+    const slot = previewSlots[i] ?? previewSlots[previewSlots.length - 1] ?? {
+      slotLabel: `${i + 1}番目`,
+      slotTime: new Date(now.getTime() + (i + 1) * 60 * 60 * 1000),
+    };
 
     try {
+      // 記事本文・OG画像を取得
       let articleBody = "";
       let ogImageUrl = "";
       try {
         const fetched = await fetchUrlContent(article.link);
         articleBody = fetched.text?.slice(0, 3000) ?? "";
+        // 複数画像がある場合は最初の1枚だけ使用
         ogImageUrl = fetched.mediaUrls?.[0] ?? "";
       } catch { /* フェッチ失敗時はdescriptionのみで生成 */ }
 
+      // スレッド構造強化プロンプト（記事参考: フック→要点→深掘り→まとめ）
       const genResponse = await anthropic.messages.create({
         model: "claude-sonnet-4-20250514",
         max_tokens: 3000,
         messages: [
           {
             role: "user",
-            content: `以下の記事をもとに、バズりやすいスレッド投稿を生成してください。
+            content: `以下の記事をもとに、バズりやすいThreadsスレッド投稿を生成してください。
 
 ## 元記事情報
 タイトル: ${article.title}
@@ -322,12 +406,18 @@ URL: ${article.link}
 ${jaArticle ? `\n## 日本語記事\nタイトル: ${jaArticle.title}\nURL: ${jaArticle.url}` : ""}
 ${articleBody ? `\n## 記事本文（抜粋）\n${articleBody}` : ""}
 
+## スレッド構造（必ずこの順番で）
+**投稿1（フック）**: 読者が思わず止まる衝撃的な1〜2行 + 改行 + 日本語記事URL${jaArticle ? `（${jaArticle.url}）` : `（${article.link}）`}
+**投稿2（要点）**: ①②③形式のリスト。具体的な数字・固有名詞・新事実を必ず含める（300〜400字）
+**投稿3（深掘り）**: なぜこれが重要か・業界への影響・日本市場への示唆（300〜450字）
+**投稿4（まとめ）**: 読者への問いかけ or 行動提案（200字以内・省略可）
+
 ## 重要ルール
-1. **投稿1の冒頭**に${jaArticle ? `以下の日本語記事URLを配置してください: ${jaArticle.url}` : `URLを配置してください: ${article.link}`}
-2. 元記事の情報だけで終わらせず、関連する最新動向・背景・具体的な数字・業界への影響を補完し、情報密度の高い投稿にしてください
-3. 情報量が多い場合は投稿2以降を400-500字の長文解説にしてください
-4. 日本語で、分かりやすく解説
-5. JSON文字列配列で返してください（例: ["投稿1", "投稿2", ...]）`,
+- 元記事の情報だけで終わらせず、関連する最新動向・背景・具体的な数字を補完すること
+- 「〜です」「〜ます」ではなく体言止めや「〜だ」調のカジュアルなトーン
+- AI的な紋切り型表現（「〜の世界」「まさに」「革命」）は禁止
+- 情報源・元記事URLは投稿1にのみ記載（他の投稿には不要）
+- JSON文字列配列で返してください（例: ["投稿1テキスト", "投稿2テキスト", ...]）`,
           },
         ],
         system: systemPrompt,
@@ -433,5 +523,5 @@ ${articleBody ? `\n## 記事本文（抜粋）\n${articleBody}` : ""}
   });
 
   stats.batches_sent++;
-  console.log(`バッチ送信完了: ${createdDraftIds.length}件の下書き, MessageID: ${batchResult.messageId}`);
+  console.log(`バッチ送信完了: ${createdDraftIds.length}件, MessageID: ${batchResult.messageId}`);
 }
