@@ -436,8 +436,6 @@ ${articlesList}${recentTitlesSummary}`,
         }
       }
 
-      const ogImageUrl = uploadedMediaUrls[0] ?? "";
-
       // スレッド構造強化プロンプト
       // X投稿ソースの場合はスレッド全文の構造を保持するよう指示を追加
       const isXSource = detectUrlType(article.link).type === "x";
@@ -493,8 +491,8 @@ ${isXSource && xThreadTexts && xThreadTexts.length > 1 ? "\n※ 元スレッド�
       const threadPosts = JSON.parse(jsonStr) as string[];
       if (!Array.isArray(threadPosts) || threadPosts.length === 0) continue;
 
-      const mediaUrls: string[] = [];
-      if (ogImageUrl) mediaUrls.push(ogImageUrl);
+      // 全てのアップロード済みメディアURLを使用
+      const mediaUrls: string[] = uploadedMediaUrls.filter(Boolean);
 
       // 下書き保存（pending_approval: まだカレンダーには登録しない）
       const { data: draft, error: draftError } = await admin
@@ -531,6 +529,7 @@ ${isXSource && xThreadTexts && xThreadTexts.length > 1 ? "\n※ 元スレッド�
         draftId: draft.id,
         articleTitle: jaArticle?.title ?? article.title,
         firstPost: threadPosts[0],
+        threadPosts,
         jaArticleUrl: jaArticle?.url,
         slotLabel: slot.slotLabel,
         slotTime: slot.slotTime,
@@ -562,11 +561,12 @@ ${isXSource && xThreadTexts && xThreadTexts.length > 1 ? "\n※ 元スレッド�
     return;
   }
 
-  // auto_post_batchesテーブルに記録
+  // auto_post_batchesテーブルに記録（各投稿のDiscordメッセージIDも保存）
   const previewSlotsJson = batchPreviews.map((p) => ({
     draft_id: p.draftId,
     slot_label: p.slotLabel,
     slot_time: p.slotTime.toISOString(),
+    discord_message_id: batchResult.draftMessageMap[p.draftId] ?? null,
   }));
 
   await admin.from("auto_post_batches").insert({
