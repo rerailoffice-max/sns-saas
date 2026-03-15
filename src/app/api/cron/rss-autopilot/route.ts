@@ -19,11 +19,16 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllFeeds, DEFAULT_RSS_FEEDS, type RSSFeed } from "@/lib/rss/parser";
 import { translateUntranslatedArticles } from "@/lib/rss/translate";
 import { buildPostPrompt } from "@/lib/prompt-engine";
-import { fetchUrlContent } from "@/lib/url-fetcher";
+import { fetchUrlContent, detectUrlType } from "@/lib/url-fetcher";
 import Anthropic from "@anthropic-ai/sdk";
 import { sendBatchApprovalDM, type BatchDraftPreview } from "@/lib/discord-notify";
 import { searchJapaneseArticle } from "@/lib/brave-search";
-import { getRecentPostTitles, filterDuplicates } from "@/lib/duplicate-checker";
+import {
+  getRecentPostTitles,
+  getRecentThreadsPostTexts,
+  filterDuplicatesWithPostedTexts,
+} from "@/lib/duplicate-checker";
+import { downloadAndUploadImages } from "@/lib/media-uploader";
 import { NextRequest, NextResponse } from "next/server";
 
 export const maxDuration = 300;
@@ -270,10 +275,32 @@ async function processUser(
     return;
   }
 
-  // 過去30日の投稿タイトルを取得して重複チェック
+  // 過去30日の投稿タイトルを取得して重複チェック（DBタイトル + Threads実投稿テキスト）
   const recentTitles = await getRecentPostTitles(admin, setting.profile_id, 30);
+
+  // Threads アカウントのアクセストークンを取得して実投稿テキストも重複チェックに使う
+  const { data: accountRow } = await admin
+    .from("social_accounts")
+    .select("platform, access_token")
+    .eq("id", setting.account_id)
+    .single();
+
+  const threadsAccessToken =
+    accountRow?.platform === "threads" && accountRow?.access_token
+      ? (accountRow.access_token as string)
+      : null;
+
+  const recentPostedTexts = await getRecentThreadsPostTexts(threadsAccessToken, 30);
+  if (recentPostedTexts.length > 0) {
+    console.log(`Threads実投稿から${recentPostedTexts.length}件を重複チェックに追加`);
+  }
+
   const beforeCount = articlesWithJa.length;
-  articlesWithJa = filterDuplicates(articlesWithJa, recentTitles) as ArticleWithJa[];
+  articlesWithJa = filterDuplicatesWithPostedTexts(
+    articlesWithJa,
+    recentTitles,
+    recentPostedTexts
+  ) as ArticleWithJa[];
   const removedCount = beforeCount - articlesWithJa.length;
   if (removedCount > 0) {
     console.log(`重複チェック: ${removedCount}件を除外、残り${articlesWithJa.length}件`);
@@ -337,14 +364,8 @@ ${articlesList}${recentTitlesSummary}`,
 
   console.log(`AIが選出: ${pickedArticles.length}件`);
 
-  // アカウント情報を取得
-  const { data: account } = await admin
-    .from("social_accounts")
-    .select("platform")
-    .eq("id", setting.account_id)
-    .single();
-
-  const platform = (account?.platform as "threads" | "x") ?? "threads";
+  // アカウント情報（platform）は重複チェック時に取得済みの accountRow を再利用
+  const platform = (accountRow?.platform as "threads" | "x") ?? "threads";
   const systemPrompt = buildPostPrompt({ platform, threadCount: 4 });
 
   // 実行時刻に応じてサイクルスロットを決定
@@ -380,16 +401,50 @@ ${articlesList}${recentTitlesSummary}`,
 
     try {
       // 記事本文・OG画像を取得
+      // X投稿URLの場合はX API v2でスレッド全文+実際の画像URLを取得
       let articleBody = "";
-      let ogImageUrl = "";
+      let rawMediaUrls: string[] = [];
+      let xThreadTexts: string[] | undefined;
+
       try {
+        const urlType = detectUrlType(article.link);
         const fetched = await fetchUrlContent(article.link);
         articleBody = fetched.text?.slice(0, 3000) ?? "";
-        // 複数画像がある場合は最初の1枚だけ使用
-        ogImageUrl = fetched.mediaUrls?.[0] ?? "";
+        rawMediaUrls = fetched.mediaUrls ?? [];
+
+        // X投稿のスレッド全文が取得できた場合は記事本文に補完
+        if (urlType.type === "x" && fetched.xThreadTexts && fetched.xThreadTexts.length > 1) {
+          xThreadTexts = fetched.xThreadTexts;
+          // スレッド全文をarticleBodyにも追加（AIプロンプトの情報源として使用）
+          articleBody = fetched.xThreadTexts
+            .slice(0, 5) // 最大5投稿分
+            .join("\n---\n")
+            .slice(0, 3000);
+        }
       } catch { /* フェッチ失敗時はdescriptionのみで生成 */ }
 
-      // スレッド構造強化プロンプト（記事参考: フック→要点→深掘り→まとめ）
+      // 画像をSupabase Storageにアップロード（外部URLのまま使うと403になるリスクを排除）
+      // まず仮のdraft_idを使い、保存後に正式なIDに置き換える
+      const tempDraftId = `tmp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      let uploadedMediaUrls: string[] = rawMediaUrls;
+      if (rawMediaUrls.length > 0) {
+        try {
+          uploadedMediaUrls = await downloadAndUploadImages(rawMediaUrls, tempDraftId);
+        } catch {
+          // アップロード失敗は元のURLをフォールバックとして使用
+          uploadedMediaUrls = rawMediaUrls;
+        }
+      }
+
+      const ogImageUrl = uploadedMediaUrls[0] ?? "";
+
+      // スレッド構造強化プロンプト
+      // X投稿ソースの場合はスレッド全文の構造を保持するよう指示を追加
+      const isXSource = detectUrlType(article.link).type === "x";
+      const xThreadContext = xThreadTexts && xThreadTexts.length > 1
+        ? `\n## 元スレッド全文（${xThreadTexts.length}投稿）\n${xThreadTexts.map((t, i) => `投稿${i + 1}: ${t}`).join("\n\n")}`
+        : "";
+
       const genResponse = await anthropic.messages.create({
         model: "claude-sonnet-4-20250514",
         max_tokens: 3000,
@@ -404,13 +459,14 @@ URL: ${article.link}
 概要: ${article.description ?? "なし"}
 ソース: ${article.source}
 ${jaArticle ? `\n## 日本語記事\nタイトル: ${jaArticle.title}\nURL: ${jaArticle.url}` : ""}
-${articleBody ? `\n## 記事本文（抜粋）\n${articleBody}` : ""}
+${articleBody && !xThreadContext ? `\n## 記事本文（抜粋）\n${articleBody}` : ""}${xThreadContext}
 
 ## スレッド構造（必ずこの順番で）
 **投稿1（フック）**: 読者が思わず止まる衝撃的な1〜2行 + 改行 + 日本語記事URL${jaArticle ? `（${jaArticle.url}）` : `（${article.link}）`}
 **投稿2（要点）**: ①②③形式のリスト。具体的な数字・固有名詞・新事実を必ず含める（300〜400字）
 **投稿3（深掘り）**: なぜこれが重要か・業界への影響・日本市場への示唆（300〜450字）
 **投稿4（まとめ）**: 読者への問いかけ or 行動提案（200字以内・省略可）
+${isXSource && xThreadTexts && xThreadTexts.length > 1 ? "\n※ 元スレッドの構造（各投稿の話の流れ）を保持して日本語に再構成すること" : ""}
 
 ## 重要ルール
 - 元記事の情報だけで終わらせず、関連する最新動向・背景・具体的な数字を補完すること
@@ -459,6 +515,7 @@ ${articleBody ? `\n## 記事本文（抜粋）\n${articleBody}` : ""}
             auto_generated: true,
             preview_slot: slot.slotTime.toISOString(),
             ...(jaArticle ? { ja_article_url: jaArticle.url, ja_article_title: jaArticle.title } : {}),
+            ...(xThreadTexts && xThreadTexts.length > 1 ? { x_thread_texts: xThreadTexts, x_thread_count: xThreadTexts.length } : {}),
           },
           status: "pending_approval",
         })

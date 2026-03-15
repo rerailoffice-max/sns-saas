@@ -4,6 +4,8 @@ export interface UrlContent {
   text: string;
   url: string;
   mediaUrls: string[];
+  /** X APIで取得したスレッド全投稿テキスト（xurl経由の場合のみ）*/
+  xThreadTexts?: string[];
   error?: string;
 }
 
@@ -16,6 +18,8 @@ export type UrlTypeResult =
 const TIMEOUT_MS = 15000;
 const USER_AGENT =
   "Mozilla/5.0 (compatible; SNS-SaaS/1.0; +https://example.com/bot)";
+
+const X_API_BASE = "https://api.twitter.com/2";
 
 export function detectUrlType(url: string): UrlTypeResult {
   let normalized: string;
@@ -55,6 +59,10 @@ export async function fetchUrlContent(url: string): Promise<UrlContent> {
 
   switch (detected.type) {
     case "x":
+      // X Bearer Tokenがあればv2 APIで画像・スレッド全文を取得、なければoEmbedフォールバック
+      if (process.env.X_BEARER_TOKEN) {
+        return fetchXPostWithMedia(detected.tweetId, detected.url);
+      }
       return fetchXPostOembed(detected.tweetId, detected.url);
     case "threads":
       return fetchThreadsPost(detected.url);
@@ -68,6 +76,151 @@ export async function fetchUrlContent(url: string): Promise<UrlContent> {
         mediaUrls: [],
         error: "Unsupported or invalid URL",
       };
+  }
+}
+
+/**
+ * X API v2 を使ってツイートの画像・動画・スレッド全文を取得
+ * Bearer Token が必要（X_BEARER_TOKEN 環境変数）
+ */
+export async function fetchXPostWithMedia(
+  tweetId: string,
+  originalUrl: string
+): Promise<UrlContent> {
+  const bearerToken = process.env.X_BEARER_TOKEN;
+  if (!bearerToken) {
+    return fetchXPostOembed(tweetId, originalUrl);
+  }
+
+  const headers = {
+    Authorization: `Bearer ${bearerToken}`,
+  };
+
+  try {
+    // メインツイートを取得（メディア・会話ID含む）
+    const tweetUrl = new URL(`${X_API_BASE}/tweets/${tweetId}`);
+    tweetUrl.searchParams.set(
+      "tweet.fields",
+      "text,author_id,conversation_id,attachments,created_at"
+    );
+    tweetUrl.searchParams.set(
+      "expansions",
+      "author_id,attachments.media_keys"
+    );
+    tweetUrl.searchParams.set("media.fields", "url,type,preview_image_url");
+    tweetUrl.searchParams.set("user.fields", "username,name");
+
+    const tweetRes = await fetch(tweetUrl.toString(), {
+      headers,
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+
+    if (!tweetRes.ok) {
+      console.warn(`X API v2 error: ${tweetRes.status}, fallback to oEmbed`);
+      return fetchXPostOembed(tweetId, originalUrl);
+    }
+
+    const tweetData = (await tweetRes.json()) as {
+      data?: {
+        id: string;
+        text: string;
+        author_id?: string;
+        conversation_id?: string;
+        attachments?: { media_keys?: string[] };
+      };
+      includes?: {
+        users?: Array<{ id: string; username: string; name: string }>;
+        media?: Array<{
+          media_key: string;
+          type: string;
+          url?: string;
+          preview_image_url?: string;
+        }>;
+      };
+    };
+
+    if (!tweetData.data) {
+      return fetchXPostOembed(tweetId, originalUrl);
+    }
+
+    const mainTweet = tweetData.data;
+    const authorUsername =
+      tweetData.includes?.users?.find((u) => u.id === mainTweet.author_id)
+        ?.username ?? "";
+
+    // メディアURL取得（画像優先、動画はpreview_image_urlを利用）
+    const mediaUrls: string[] = [];
+    if (tweetData.includes?.media) {
+      for (const m of tweetData.includes.media) {
+        if (m.type === "photo" && m.url) {
+          mediaUrls.push(m.url);
+        } else if (
+          (m.type === "video" || m.type === "animated_gif") &&
+          m.preview_image_url
+        ) {
+          mediaUrls.push(m.preview_image_url);
+        }
+      }
+    }
+
+    // スレッド全文を取得（conversation_id + from:username）
+    const xThreadTexts: string[] = [mainTweet.text];
+
+    if (mainTweet.conversation_id && authorUsername) {
+      try {
+        const searchUrl = new URL(`${X_API_BASE}/tweets/search/recent`);
+        searchUrl.searchParams.set(
+          "query",
+          `conversation_id:${mainTweet.conversation_id} from:${authorUsername}`
+        );
+        searchUrl.searchParams.set("tweet.fields", "text,author_id,created_at");
+        searchUrl.searchParams.set("max_results", "20");
+
+        const searchRes = await fetch(searchUrl.toString(), {
+          headers,
+          signal: AbortSignal.timeout(TIMEOUT_MS),
+        });
+
+        if (searchRes.ok) {
+          const searchData = (await searchRes.json()) as {
+            data?: Array<{ id: string; text: string }>;
+          };
+
+          if (searchData.data && searchData.data.length > 0) {
+            // メインツイート以外のスレッド投稿を追加（リプライ除外: @で始まるものを除く）
+            const threadReplies = searchData.data
+              .filter(
+                (t) =>
+                  t.id !== tweetId &&
+                  !t.text.startsWith("@") &&
+                  t.text.trim().length > 0
+              )
+              .map((t) => t.text);
+
+            xThreadTexts.push(...threadReplies);
+          }
+        }
+      } catch {
+        // スレッド取得失敗はメインツイートのみで続行
+      }
+    }
+
+    const fullText = xThreadTexts.join("\n\n---\n\n");
+
+    return {
+      source: "x",
+      title: authorUsername ? `@${authorUsername}` : undefined,
+      text: fullText,
+      url: originalUrl,
+      mediaUrls,
+      xThreadTexts,
+    };
+  } catch (err) {
+    console.warn(
+      "fetchXPostWithMedia failed, fallback to oEmbed:",
+      err instanceof Error ? err.message : err
+    );
+    return fetchXPostOembed(tweetId, originalUrl);
   }
 }
 
