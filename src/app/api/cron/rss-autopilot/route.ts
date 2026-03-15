@@ -141,7 +141,7 @@ export async function GET(request: NextRequest) {
   }
 
   const admin = createAdminClient();
-  const stats: Record<string, unknown> = { users_processed: 0, articles_saved: 0, drafts_created: 0, batches_sent: 0 };
+  const stats = { users_processed: 0, articles_saved: 0, drafts_created: 0, batches_sent: 0 } as Record<string, number | string>;
 
   const { data: settings, error: settingsError } = await admin
     .from("auto_post_settings")
@@ -171,7 +171,7 @@ async function processUser(
   admin: ReturnType<typeof createAdminClient>,
   anthropic: Anthropic,
   setting: AutoPostSetting,
-  stats: Record<string, unknown>,
+  stats: Record<string, number | string>,
   now: Date
 ) {
   stats.users_processed++;
