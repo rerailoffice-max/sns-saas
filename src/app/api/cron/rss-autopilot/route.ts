@@ -395,9 +395,17 @@ async function processUser(
     messages: [
       {
         role: "user",
-        content: `以下のAIニュース記事・X投稿から、Threadsでバズりそうなものを全て選んでください。
+        content: `以下のAIニュース記事・X投稿から、Threadsでバズりそうなものを選んでください。
 最低${minPicks}件は必ず選ぶこと（最大${allCandidates.length}件）。
-選定基準: 話題性・インパクト・新規性・日本のAI界隈が盛り上がりそうなもの。
+
+## 選定優先度（重要）
+1. **最優先: AIインフルエンサーの投稿**（X:@rowancheung, X:@heykahn, X:@_akhaliq, X:@hasantoxr, X:@mattshumer_, X:@omarsar0, X:@AiBreakfast, X:@itsPaulAi, X:@TheRundownAI）
+   → 話題性・インパクト・新規性があるものを積極的に選ぶ
+2. **公式・創設者の投稿**（X:@OpenAI, X:@AnthropicAI, X:@sama, X:@DarioAmodei 等）
+   → **新製品発表・新サービス・新機能のアナウンスのみ**採用
+   → 日常の感想・意見・お祝い・採用情報など製品発表以外は除外
+3. **RSS記事**（日本語記事あり）
+   → インフルエンサー・公式の投稿で十分な場合は優先度を下げてOK
 
 番号をJSON配列で返してください。例: [1, 2, 4, 5, 7]
 

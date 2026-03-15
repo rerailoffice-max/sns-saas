@@ -217,10 +217,22 @@ export async function sendBatchApprovalDM(
       ? formatted.slice(0, 3900) + "\n...（省略）"
       : formatted;
 
-    await discordFetch(`/channels/${channelId}/messages`, {
+    const postResult = await discordFetch(`/channels/${channelId}/messages`, {
       method: "POST",
       body: JSON.stringify({ content }),
     });
+
+    // 各投稿にも ✅❌ リアクションを追加
+    if (postResult?.id) {
+      await discordFetch(
+        `/channels/${channelId}/messages/${postResult.id}/reactions/%E2%9C%85/@me`,
+        { method: "PUT" }
+      );
+      await discordFetch(
+        `/channels/${channelId}/messages/${postResult.id}/reactions/%E2%9D%8C/@me`,
+        { method: "PUT" }
+      );
+    }
   }
 
   return {
