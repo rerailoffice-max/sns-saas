@@ -150,7 +150,79 @@ export class ThreadsAdapter implements SNSAdapter {
       access_token: accessToken,
     };
 
-    if (content.media_urls && content.media_urls.length === 1) {
+    // カルーセル（複数画像）の場合は子コンテナを先に作成
+    let carouselChildIds: string[] = [];
+
+    if (content.media_urls && content.media_urls.length > 1) {
+      // Threads APIカルーセル: 最大20枚、各画像の子コンテナを個別作成
+      const mediaUrls = content.media_urls.slice(0, 20); // API上限20
+      for (const url of mediaUrls) {
+        const isVideo =
+          /\.(mp4|mov|webm)(\?|$)/i.test(url) || url.includes("/video");
+        const childParams: Record<string, string> = {
+          is_carousel_item: "true",
+          access_token: accessToken,
+        };
+        if (isVideo) {
+          childParams.media_type = "VIDEO";
+          childParams.video_url = url;
+        } else {
+          childParams.media_type = "IMAGE";
+          childParams.image_url = url;
+        }
+
+        const childRes = await fetch(`${THREADS_API_BASE}/me/threads`, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams(childParams),
+        });
+
+        if (!childRes.ok) {
+          const err = await childRes.json();
+          console.error(`カルーセル子コンテナ作成失敗: ${JSON.stringify(err)}`);
+          continue; // 失敗した画像はスキップ
+        }
+        const childData = await childRes.json();
+        carouselChildIds.push(childData.id);
+
+        // 子コンテナのステータスポーリング（画像は通常速い）
+        for (let j = 0; j < 10; j++) {
+          const sRes = await fetch(
+            `${THREADS_API_BASE}/${childData.id}?fields=status,error_message&access_token=${accessToken}`
+          );
+          if (sRes.ok) {
+            const sData = await sRes.json();
+            if (sData.status === "FINISHED") break;
+            if (sData.status === "ERROR") {
+              console.error(`子コンテナエラー: ${sData.error_message}`);
+              carouselChildIds.pop(); // 失敗分を除去
+              break;
+            }
+          }
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+      }
+
+      if (carouselChildIds.length > 1) {
+        containerParams.media_type = "CAROUSEL";
+        containerParams.children = carouselChildIds.join(",");
+      } else if (carouselChildIds.length === 1) {
+        // 1枚だけ成功した場合は単一画像として処理
+        // カルーセル子コンテナは直接publishできないので再作成
+        const url = mediaUrls[0];
+        const isVideo =
+          /\.(mp4|mov|webm)(\?|$)/i.test(url) || url.includes("/video");
+        if (isVideo) {
+          containerParams.media_type = "VIDEO";
+          containerParams.video_url = url;
+        } else {
+          containerParams.media_type = "IMAGE";
+          containerParams.image_url = url;
+        }
+        carouselChildIds = [];
+      }
+      // 0枚成功の場合はTEXTのまま
+    } else if (content.media_urls && content.media_urls.length === 1) {
       const url = content.media_urls[0];
       const isVideo =
         content.media_type === "video" ||
@@ -164,13 +236,18 @@ export class ThreadsAdapter implements SNSAdapter {
         containerParams.media_type = "IMAGE";
         containerParams.image_url = url;
       }
-    } else if (content.media_urls && content.media_urls.length > 1) {
-      containerParams.media_type = "CAROUSEL";
-      // TODO: カルーセル用の個別コンテナ作成ロジック
     }
 
     if (content.reply_to) {
       containerParams.reply_to_id = content.reply_to;
+    }
+
+    // カルーセルの場合、reply_to_idとchildrenは併用不可（Threads API仕様）
+    // スレッド返信にカルーセルを使う場合はテキスト投稿にフォールバック
+    if (containerParams.children && containerParams.reply_to_id) {
+      console.warn("カルーセル＋返信は非対応。テキスト投稿にフォールバック");
+      delete containerParams.children;
+      containerParams.media_type = "TEXT";
     }
 
     const containerRes = await fetch(
