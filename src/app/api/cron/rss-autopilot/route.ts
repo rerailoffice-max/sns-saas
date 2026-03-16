@@ -2,8 +2,8 @@
  * RSS自動投稿パイプライン Cronジョブ
  * GET /api/cron/rss-autopilot (Vercel Cron)
  *
- * JST 20:00 実行 → 21:00/22:00/23:00/00:00 の4スロットに投稿予約
- * JST  4:00 実行 →  5:00/ 6:00/ 7:00/ 8:00 の4スロットに投稿予約
+ * 5回/日 (JST 4:00, 8:00, 12:00, 16:00, 20:00) 実行
+ * 各サイクル: 実行1時間後から2スロット（1時間間隔）に投稿予約
  *
  * フロー:
  * 1. RSS取得 → rss_articles 保存
@@ -34,23 +34,36 @@ import { NextRequest, NextResponse } from "next/server";
 export const maxDuration = 300;
 
 const JST_OFFSET = 9 * 60 * 60 * 1000;
-const MIN_PICKS = 4;
+const MIN_PICKS = 2;
 const BRAVE_SEARCH_LIMIT = 10;
 
 /**
  * 実行時刻（JST）に応じてサイクルのスロット開始時間を決定
- * JST 20時台に実行 → 翌スロット 21,22,23,24(=0)
- * JST  4時台に実行 → 翌スロット  5, 6, 7, 8
+ * 5回/日: JST 4:00→5,6 / 8:00→9,10 / 12:00→13,14 / 16:00→17,18 / 20:00→21,22
  * それ以外 → auto_post_settingsの設定に従う（フォールバック）
  */
 function getCycleSlots(nowJstHour: number): number[] | null {
-  if (nowJstHour >= 19 && nowJstHour < 22) {
-    // 夜サイクル: 21,22,23,0時
-    return [21, 22, 23, 0];
-  }
+  // 5回/日 cron: JST 4:00, 8:00, 12:00, 16:00, 20:00
+  // 各サイクルは実行の1時間後から2スロット（1時間間隔）
   if (nowJstHour >= 3 && nowJstHour < 6) {
-    // 朝サイクル: 5,6,7,8時
-    return [5, 6, 7, 8];
+    // JST 4時実行 → 5, 6時
+    return [5, 6];
+  }
+  if (nowJstHour >= 7 && nowJstHour < 10) {
+    // JST 8時実行 → 9, 10時
+    return [9, 10];
+  }
+  if (nowJstHour >= 11 && nowJstHour < 14) {
+    // JST 12時実行 → 13, 14時
+    return [13, 14];
+  }
+  if (nowJstHour >= 15 && nowJstHour < 18) {
+    // JST 16時実行 → 17, 18時
+    return [17, 18];
+  }
+  if (nowJstHour >= 19 && nowJstHour < 22) {
+    // JST 20時実行 → 21, 22時
+    return [21, 22];
   }
   return null; // フォールバック: 設定値を使用
 }
