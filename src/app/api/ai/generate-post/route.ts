@@ -155,6 +155,9 @@ export async function POST(request: NextRequest) {
         }
         fetchedMediaUrls = urlContent.mediaUrls;
 
+        console.log(`[ai/generate-post] URL取得結果: source=${urlContent.source}, title=${urlContent.title ?? "(なし)"}, textLen=${urlContent.text.length}, media=${urlContent.mediaUrls.length}`);
+        console.log(`[ai/generate-post] URL取得テキスト先頭200文字: ${urlContent.text.slice(0, 200)}`);
+
         const articleBody = urlContent.text.slice(0, 3000);
         const isEnglish = /^[a-zA-Z0-9\s.,!?'"()\-:;]+$/.test(
           (urlContent.title ?? "").slice(0, 50)
@@ -186,19 +189,24 @@ export async function POST(request: NextRequest) {
           ? `8. ★ユーザーのアレンジ指示: ${arrange_prompt}`
           : "";
 
-        userContent = `以下の記事をもとに、バズりやすい投稿を生成してください。
+        const sourceLabel = urlContent.source === "x" ? "X（Twitter）投稿" : "記事";
+        const faithfulInstruction = urlContent.source === "x"
+          ? "2. ★重要: 元のX投稿の内容・主張を忠実に反映してください。元投稿と無関係な内容を生成しないでください。その上で、関連する最新動向・背景・具体的な数字を補完してください"
+          : "2. 元記事の情報だけで終わらせず、あなたの知識から**関連する最新動向・背景・具体的な数字・業界への影響**を補完し、元記事より有益で情報密度の高い投稿にしてください";
 
-## 元記事情報
+        userContent = `以下の${sourceLabel}をもとに、バズりやすい投稿を生成してください。
+
+## 元${sourceLabel}情報
 URL: ${urlContent.url}
 タイトル: ${urlContent.title ?? "（なし）"}
 ${jaArticle ? `\n## 日本語記事\nタイトル: ${jaArticle.title}\nURL: ${jaArticle.url}` : ""}
 
-## 記事本文（抜粋）
+## ${sourceLabel}本文（抜粋）
 ${articleBody}
 
 ## 生成ルール
 ${urlInstruction}
-2. 元記事の情報だけで終わらせず、あなたの知識から**関連する最新動向・背景・具体的な数字・業界への影響**を補完し、元記事より有益で情報密度の高い投稿にしてください
+${faithfulInstruction}
 3. 情報量が多い場合は投稿2以降を400-500字の長文解説にしてください（@kudooo_ai型）
 4. ${threadCountInstruction}
 5. 日本語で、分かりやすく解説

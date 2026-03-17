@@ -116,7 +116,7 @@ export async function fetchXPostWithMedia(
     });
 
     if (!tweetRes.ok) {
-      console.warn(`X API v2 error: ${tweetRes.status}, fallback to oEmbed`);
+      console.warn(`[url-fetcher] X API v2 error: status=${tweetRes.status}${tweetRes.status === 429 ? " (RATE LIMITED)" : ""}, fallback to oEmbed`);
       return fetchXPostOembed(tweetId, originalUrl);
     }
 
@@ -249,6 +249,9 @@ export async function fetchXPostWithMedia(
 
     const fullText = xThreadTexts.join("\n\n---\n\n");
 
+    console.log(`[url-fetcher] X API v2 success: tweetId=${tweetId}, author=@${authorUsername}, textLen=${fullText.length}, threadPosts=${xThreadTexts.length}, media=${uniqueMediaUrls.length}`);
+    console.log(`[url-fetcher] X API v2 text preview: ${fullText.slice(0, 200)}`);
+
     return {
       source: "x",
       title: authorUsername ? `@${authorUsername}` : undefined,
@@ -259,7 +262,7 @@ export async function fetchXPostWithMedia(
     };
   } catch (err) {
     console.warn(
-      "fetchXPostWithMedia failed, fallback to oEmbed:",
+      "[url-fetcher] fetchXPostWithMedia failed, fallback to oEmbed:",
       err instanceof Error ? err.message : err
     );
     return fetchXPostOembed(tweetId, originalUrl);
@@ -309,6 +312,20 @@ async function fetchXPostOembed(
       if (m[1] && !m[1].startsWith("data:")) {
         mediaUrls.push(m[1]);
       }
+    }
+
+    console.log(`[url-fetcher] oEmbed fallback: tweetId=${tweetId}, textLen=${text.length}, author=${data.author_name ?? "unknown"}`);
+    console.log(`[url-fetcher] oEmbed text preview: ${text.slice(0, 200)}`);
+
+    if (text.length < 50) {
+      return {
+        source: "x",
+        title: data.author_name,
+        text,
+        url: data.url ?? originalUrl,
+        mediaUrls,
+        error: `ツイートの内容を十分に取得できませんでした（${text.length}文字）。X API v2のトークンを確認してください。`,
+      };
     }
 
     return {
