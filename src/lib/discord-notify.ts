@@ -48,6 +48,8 @@ async function discordFetch(path: string, options: RequestInit = {}) {
     console.error(`Discord API error ${res.status}: ${body}`);
     return null;
   }
+  // 204 No Content（リアクション追加など）はJSONなし
+  if (res.status === 204) return true;
   return res.json();
 }
 
