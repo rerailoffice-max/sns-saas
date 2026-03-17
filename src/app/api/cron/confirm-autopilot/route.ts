@@ -189,11 +189,27 @@ export async function GET(request: NextRequest) {
       const hasIndividualMessages = previewSlots.some((s) => s.discord_message_id);
       if (!hasIndividualMessages) continue;
 
+      // 既にスケジュール済み or 却下済みのdraftを除外するため現在のステータスを取得
+      const { data: currentDrafts } = await admin
+        .from("drafts")
+        .select("id, status")
+        .in("id", batch.draft_ids);
+
+      const draftStatusMap = new Map(
+        (currentDrafts ?? []).map((d: { id: string; status: string }) => [d.id, d.status])
+      );
+
       let approvedDrafts: string[] = [];
       let rejectedDrafts: string[] = [];
       let pendingDrafts: string[] = [];
 
       for (const slot of previewSlots) {
+        // 前回のcronで既に処理済みのdraftはスキップ
+        const currentStatus = draftStatusMap.get(slot.draft_id);
+        if (currentStatus === "scheduled" || currentStatus === "rejected") {
+          continue;
+        }
+
         if (!slot.discord_message_id) {
           pendingDrafts.push(slot.draft_id);
           continue;
@@ -257,11 +273,24 @@ export async function GET(request: NextRequest) {
         stats.posts_rejected += rejectedDrafts.length;
       }
 
-      // 全投稿が処理済みか確認してバッチステータスを更新
-      if (pendingDrafts.length === 0) {
-        const finalStatus = rejectedDrafts.length === batch.draft_ids.length
+      // 全投稿が処理済みか確認（DB上の既処理分 + 今回処理分を合算）
+      const alreadyProcessedCount = (currentDrafts ?? []).filter(
+        (d: { id: string; status: string }) => d.status === "scheduled" || d.status === "rejected"
+      ).length;
+      const totalProcessed = alreadyProcessedCount + approvedDrafts.length + rejectedDrafts.length;
+
+      if (totalProcessed >= batch.draft_ids.length) {
+        // 全draftのステータスを再集計
+        const totalScheduled = (currentDrafts ?? []).filter(
+          (d: { id: string; status: string }) => d.status === "scheduled"
+        ).length + approvedDrafts.length;
+        const totalRejected = (currentDrafts ?? []).filter(
+          (d: { id: string; status: string }) => d.status === "rejected"
+        ).length + rejectedDrafts.length;
+
+        const finalStatus = totalRejected === batch.draft_ids.length
           ? "rejected"
-          : approvedDrafts.length === batch.draft_ids.length
+          : totalScheduled === batch.draft_ids.length
             ? "approved"
             : "partial";
 
@@ -274,13 +303,13 @@ export async function GET(request: NextRequest) {
         else if (finalStatus === "approved") stats.batches_approved++;
         else stats.batches_rejected++;
 
-        console.log(`バッチ ${batch.id}: 個別承認完了 (${finalStatus}) — 承認${approvedDrafts.length}件, 却下${rejectedDrafts.length}件`);
+        console.log(`バッチ ${batch.id}: 個別承認完了 (${finalStatus}) — 承認${totalScheduled}件, 却下${totalRejected}件`);
 
         // 結果通知
         await discordFetch(`/channels/${batch.discord_channel_id}/messages`, {
           method: "POST",
           body: JSON.stringify({
-            content: `📊 **個別承認結果:** ✅${approvedDrafts.length}件予約 / ❌${rejectedDrafts.length}件却下`,
+            content: `📊 **個別承認結果:** ✅${totalScheduled}件予約 / ❌${totalRejected}件却下`,
             message_reference: { message_id: batch.discord_message_id },
           }),
         }).catch(() => {});
