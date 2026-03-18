@@ -101,7 +101,7 @@ export async function fetchXPostWithMedia(
     const tweetUrl = new URL(`${X_API_BASE}/tweets/${tweetId}`);
     tweetUrl.searchParams.set(
       "tweet.fields",
-      "text,author_id,conversation_id,attachments,created_at"
+      "text,author_id,conversation_id,attachments,created_at,entities"
     );
     tweetUrl.searchParams.set(
       "expansions",
@@ -127,6 +127,15 @@ export async function fetchXPostWithMedia(
         author_id?: string;
         conversation_id?: string;
         attachments?: { media_keys?: string[] };
+        entities?: {
+          urls?: Array<{
+            url: string;
+            expanded_url: string;
+            display_url: string;
+            title?: string;
+            description?: string;
+          }>;
+        };
       };
       includes?: {
         users?: Array<{ id: string; username: string; name: string }>;
@@ -163,9 +172,50 @@ export async function fetchXPostWithMedia(
       }
     }
 
+    // ツイート内のリンク先コンテンツを取得（ツイート本文がリンクのみの場合に重要）
+    let linkedContent = "";
+    const externalUrls = (mainTweet.entities?.urls ?? []).filter(
+      (u) =>
+        !u.expanded_url.includes("twitter.com/") &&
+        !u.expanded_url.includes("x.com/") &&
+        !u.expanded_url.includes("t.co/")
+    );
+
+    // ツイート本文がほぼURLのみ（非URL部分が50文字未満）の場合、リンク先を自動取得
+    const textWithoutUrls = mainTweet.text
+      .replace(/https?:\/\/\S+/g, "")
+      .trim();
+    const shouldFetchLinks = textWithoutUrls.length < 50;
+
+    if (shouldFetchLinks && externalUrls.length > 0) {
+      console.log(`[url-fetcher] ツイート本文がリンク中心（非URL部分: ${textWithoutUrls.length}文字）、リンク先を自動取得: ${externalUrls.map((u) => u.expanded_url).join(", ")}`);
+      for (const linkEntity of externalUrls.slice(0, 2)) {
+        try {
+          const linked = await fetchArticle(linkEntity.expanded_url);
+          if (linked.text && !linked.error) {
+            const title = linked.title ?? linkEntity.title ?? linkEntity.display_url;
+            linkedContent += `\n\n--- リンク先: ${title} ---\n${linked.text.slice(0, 2000)}`;
+            console.log(`[url-fetcher] リンク先取得成功: ${linkEntity.expanded_url}, textLen=${linked.text.length}`);
+          }
+        } catch {
+          console.warn(`[url-fetcher] リンク先取得失敗: ${linkEntity.expanded_url}`);
+        }
+      }
+    }
+
+    // X Article等のx.com内リンクの場合、entitiesからtitle/descriptionを利用
+    if (!linkedContent) {
+      const xArticleUrls = (mainTweet.entities?.urls ?? []).filter(
+        (u) => (u.expanded_url.includes("x.com/") || u.expanded_url.includes("twitter.com/")) && u.title
+      );
+      for (const xUrl of xArticleUrls) {
+        linkedContent += `\n\n--- ${xUrl.title ?? xUrl.display_url} ---\n${xUrl.description ?? ""}`;
+      }
+    }
+
     // スレッド全文を取得（conversation_id + from:username、ページネーション対応）
     // スレッド内の画像・動画も全て取得
-    const xThreadTexts: string[] = [mainTweet.text];
+    const xThreadTexts: string[] = [mainTweet.text + linkedContent];
 
     if (mainTweet.conversation_id && authorUsername) {
       try {
