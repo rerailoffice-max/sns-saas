@@ -24,7 +24,7 @@ const requestSchema = z.object({
   arrange_prompt: z.string().max(500).optional(),
   long_form: z.boolean().optional(),
   source_url: z.string().optional(),
-  source_text: z.string().max(10000).optional(),
+  source_text: z.string().max(50000).optional(),
   thread_mode: z.boolean().optional().default(false),
   hook_pattern: z.enum(["A", "B", "C", "D", "E", "F", "G", "H", "I"]).optional(),
   thread_count: z.number().min(1).max(6).optional(),
