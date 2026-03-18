@@ -150,11 +150,29 @@ export async function DELETE() {
       .in("id", draftIds);
   }
 
-  console.log(`[bulk-delete] ${postIds.length}件のpending予約を削除、${draftIds.length}件のdraftsをdraftに戻し`);
+  // waiting状態のバッチも全てrejectedにする（cronが新しいpendingを作り続けるのを防止）
+  let batchesRejected = 0;
+  const { data: waitingBatches } = await supabase
+    .from("auto_post_batches")
+    .select("id")
+    .in("account_id", accountIds)
+    .eq("status", "waiting");
+
+  if (waitingBatches && waitingBatches.length > 0) {
+    const batchIds = waitingBatches.map((b) => b.id);
+    await supabase
+      .from("auto_post_batches")
+      .update({ status: "rejected", updated_at: new Date().toISOString() })
+      .in("id", batchIds);
+    batchesRejected = batchIds.length;
+  }
+
+  console.log(`[bulk-delete] ${postIds.length}件のpending予約を削除、${draftIds.length}件のdraftsをdraftに戻し、${batchesRejected}件のバッチをreject`);
 
   return NextResponse.json({
     message: `${postIds.length}件の予約投稿を削除しました`,
     deleted: postIds.length,
     drafts_reverted: draftIds.length,
+    batches_rejected: batchesRejected,
   });
 }
