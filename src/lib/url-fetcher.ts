@@ -174,42 +174,63 @@ export async function fetchXPostWithMedia(
 
     // ツイート内のリンク先コンテンツを取得（ツイート本文がリンクのみの場合に重要）
     let linkedContent = "";
-    const externalUrls = (mainTweet.entities?.urls ?? []).filter(
-      (u) =>
-        !u.expanded_url.includes("twitter.com/") &&
-        !u.expanded_url.includes("x.com/") &&
-        !u.expanded_url.includes("t.co/")
-    );
+    const allEntityUrls = mainTweet.entities?.urls ?? [];
 
     // ツイート本文がほぼURLのみ（非URL部分が50文字未満）の場合、リンク先を自動取得
     const textWithoutUrls = mainTweet.text
       .replace(/https?:\/\/\S+/g, "")
       .trim();
-    const shouldFetchLinks = textWithoutUrls.length < 50;
+    const shouldFetchLinks = textWithoutUrls.length < 50 && allEntityUrls.length > 0;
 
-    if (shouldFetchLinks && externalUrls.length > 0) {
-      console.log(`[url-fetcher] ツイート本文がリンク中心（非URL部分: ${textWithoutUrls.length}文字）、リンク先を自動取得: ${externalUrls.map((u) => u.expanded_url).join(", ")}`);
-      for (const linkEntity of externalUrls.slice(0, 2)) {
+    console.log(`[url-fetcher] entities: ${JSON.stringify(allEntityUrls.map((u) => ({ expanded: u.expanded_url, title: u.title, desc: u.description?.slice(0, 50) })))}`);
+
+    if (shouldFetchLinks) {
+      console.log(`[url-fetcher] ツイート本文がリンク中心（非URL部分: ${textWithoutUrls.length}文字）、リンク先を自動取得`);
+
+      for (const linkEntity of allEntityUrls.slice(0, 2)) {
+        // 1. entitiesにtitle/descriptionがあればそれを使う（X Article等で有効）
+        if (linkEntity.title || linkEntity.description) {
+          linkedContent += `\n\n--- ${linkEntity.title ?? linkEntity.display_url} ---\n${linkEntity.description ?? ""}`;
+          console.log(`[url-fetcher] entities metadata使用: title=${linkEntity.title}, descLen=${linkEntity.description?.length ?? 0}`);
+          continue;
+        }
+
+        // 2. 外部URLの場合、HTMLをフェッチ
+        const isXUrl = linkEntity.expanded_url.includes("x.com/") || linkEntity.expanded_url.includes("twitter.com/");
+        if (!isXUrl) {
+          try {
+            const linked = await fetchArticle(linkEntity.expanded_url);
+            if (linked.text && !linked.error) {
+              const title = linked.title ?? linkEntity.display_url;
+              linkedContent += `\n\n--- リンク先: ${title} ---\n${linked.text.slice(0, 2000)}`;
+              console.log(`[url-fetcher] リンク先取得成功: ${linkEntity.expanded_url}, textLen=${linked.text.length}`);
+            }
+          } catch {
+            console.warn(`[url-fetcher] リンク先取得失敗: ${linkEntity.expanded_url}`);
+          }
+          continue;
+        }
+
+        // 3. X内URL（X Article等）でentitiesにメタデータなし → t.coリダイレクト先を確認してoEmbedを試行
         try {
-          const linked = await fetchArticle(linkEntity.expanded_url);
-          if (linked.text && !linked.error) {
-            const title = linked.title ?? linkEntity.title ?? linkEntity.display_url;
-            linkedContent += `\n\n--- リンク先: ${title} ---\n${linked.text.slice(0, 2000)}`;
-            console.log(`[url-fetcher] リンク先取得成功: ${linkEntity.expanded_url}, textLen=${linked.text.length}`);
+          const oembedUrl = `https://publish.twitter.com/oembed?url=${encodeURIComponent(linkEntity.expanded_url)}`;
+          const oembedRes = await fetch(oembedUrl, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+          if (oembedRes.ok) {
+            const oembedData = (await oembedRes.json()) as { html?: string; author_name?: string };
+            if (oembedData.html) {
+              const oembedText = oembedData.html
+                .replace(/<[^>]*>/g, " ")
+                .replace(/\s+/g, " ")
+                .trim();
+              if (oembedText.length > 30) {
+                linkedContent += `\n\n--- ${oembedData.author_name ?? linkEntity.display_url} ---\n${oembedText}`;
+                console.log(`[url-fetcher] X内URL oEmbed取得成功: ${linkEntity.expanded_url}, textLen=${oembedText.length}`);
+              }
+            }
           }
         } catch {
-          console.warn(`[url-fetcher] リンク先取得失敗: ${linkEntity.expanded_url}`);
+          console.warn(`[url-fetcher] X内URL oEmbed取得失敗: ${linkEntity.expanded_url}`);
         }
-      }
-    }
-
-    // X Article等のx.com内リンクの場合、entitiesからtitle/descriptionを利用
-    if (!linkedContent) {
-      const xArticleUrls = (mainTweet.entities?.urls ?? []).filter(
-        (u) => (u.expanded_url.includes("x.com/") || u.expanded_url.includes("twitter.com/")) && u.title
-      );
-      for (const xUrl of xArticleUrls) {
-        linkedContent += `\n\n--- ${xUrl.title ?? xUrl.display_url} ---\n${xUrl.description ?? ""}`;
       }
     }
 
@@ -367,21 +388,54 @@ async function fetchXPostOembed(
     console.log(`[url-fetcher] oEmbed fallback: tweetId=${tweetId}, textLen=${text.length}, author=${data.author_name ?? "unknown"}`);
     console.log(`[url-fetcher] oEmbed text preview: ${text.slice(0, 200)}`);
 
-    if (text.length < 50) {
+    // oEmbedテキストからリンクを抽出して内容を取得（ツイートがリンクのみの場合）
+    let enrichedText = text;
+    const tcoMatches = html.matchAll(/href=["'](https?:\/\/t\.co\/[^"']+)["']/gi);
+    const tcoUrls = [...tcoMatches].map((m) => m[1]);
+
+    const textOnlyContent = text.replace(/https?:\/\/\S+/g, "").replace(/[—@()\d,.\s]/g, "").trim();
+    if (textOnlyContent.length < 30 && tcoUrls.length > 0) {
+      console.log(`[url-fetcher] oEmbed: ツイートがリンク中心、t.coリンクを解決: ${tcoUrls.join(", ")}`);
+      for (const tco of tcoUrls.slice(0, 2)) {
+        try {
+          // t.coのリダイレクト先を確認
+          const redirectRes = await fetch(tco, { redirect: "manual", signal: AbortSignal.timeout(5000) });
+          const redirectUrl = redirectRes.headers.get("location");
+          if (!redirectUrl) continue;
+
+          console.log(`[url-fetcher] t.co解決: ${tco} → ${redirectUrl}`);
+
+          const isXUrl = redirectUrl.includes("x.com/") || redirectUrl.includes("twitter.com/");
+          if (!isXUrl) {
+            // 外部URLの場合、HTMLをフェッチ
+            const linked = await fetchArticle(redirectUrl);
+            if (linked.text && !linked.error) {
+              enrichedText += `\n\n--- リンク先: ${linked.title ?? redirectUrl} ---\n${linked.text.slice(0, 2000)}`;
+              console.log(`[url-fetcher] oEmbed リンク先取得成功: ${redirectUrl}, textLen=${linked.text.length}`);
+            }
+          }
+          // X内URL（X Article等）の場合はoEmbedでは追加情報を取得しにくいためスキップ
+        } catch {
+          console.warn(`[url-fetcher] oEmbed t.coリンク解決失敗: ${tco}`);
+        }
+      }
+    }
+
+    if (enrichedText === text && textOnlyContent.length < 30) {
       return {
         source: "x",
         title: data.author_name,
-        text,
+        text: enrichedText,
         url: data.url ?? originalUrl,
         mediaUrls,
-        error: `ツイートの内容を十分に取得できませんでした（${text.length}文字）。X API v2のトークンを確認してください。`,
+        error: `ツイートの内容を十分に取得できませんでした。リンクのみのツイートの可能性があります。`,
       };
     }
 
     return {
       source: "x",
       title: data.author_name,
-      text,
+      text: enrichedText,
       url: data.url ?? originalUrl,
       mediaUrls,
     };
