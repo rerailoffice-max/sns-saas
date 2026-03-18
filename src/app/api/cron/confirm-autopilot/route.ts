@@ -109,7 +109,19 @@ export async function GET(request: NextRequest) {
   }
 
   const admin = createAdminClient();
-  const botId = process.env.DISCORD_BOT_ID;
+  let botId = process.env.DISCORD_BOT_ID;
+
+  // DISCORD_BOT_ID 未設定時は /users/@me から動的取得
+  if (!botId) {
+    const me = await discordFetch("/users/@me");
+    botId = me?.id ?? undefined;
+    if (botId) {
+      console.log(`DISCORD_BOT_ID 未設定のため動的取得: ${botId}`);
+    } else {
+      console.warn("DISCORD_BOT_ID 未設定かつ動的取得失敗。bot フィールドのみでBot判定します");
+    }
+  }
+
   const stats = { batches_checked: 0, batches_approved: 0, batches_rejected: 0, batches_partial: 0, posts_scheduled: 0, posts_rejected: 0 };
 
   // waiting状態のバッチを取得（作成から72時間以内のもの）
@@ -324,15 +336,18 @@ export async function GET(request: NextRequest) {
 
 /**
  * ユーザーのリアクションがあるか（Bot自身のリアクションは除外）
+ * Discord APIのユーザーオブジェクトの `bot` フィールド（権威的）を主判定に使用
  */
 function hasUserReaction(reactions: unknown, botId?: string): boolean {
   if (!Array.isArray(reactions) || reactions.length === 0) return false;
-  // Botしかリアクションしていない場合はfalse
-  if (botId) {
-    return reactions.some((r: { id?: string }) => r.id !== botId);
-  }
-  // botId未設定の場合: 2人以上リアクションしていれば（Bot+ユーザー）
-  return reactions.length >= 2;
+
+  return reactions.some((r: { id?: string; bot?: boolean }) => {
+    // Botアカウントを除外（Discord APIが返す権威的フラグ）
+    if (r.bot === true) return false;
+    // 二次防御: botId指定時はIDでも除外
+    if (botId && r.id === botId) return false;
+    return true;
+  });
 }
 
 /**
@@ -354,7 +369,22 @@ async function approveAllDrafts(
   const intervalMinutes = setting?.schedule_interval_minutes ?? 60;
   const alreadyAllocated = new Set<string>();
 
+  // 既にスケジュール済み or 却下済みのdraftをスキップ（個別承認パスと同じ防御）
+  const { data: currentDrafts } = await admin
+    .from("drafts")
+    .select("id, status")
+    .in("id", batch.draft_ids);
+
+  const draftStatusMap = new Map(
+    (currentDrafts ?? []).map((d: { id: string; status: string }) => [d.id, d.status])
+  );
+
   for (const draftId of batch.draft_ids) {
+    const currentStatus = draftStatusMap.get(draftId);
+    if (currentStatus === "scheduled" || currentStatus === "rejected") {
+      continue;
+    }
+
     const scheduledAt = await calcNextSlot(
       admin, batch.account_id, startHour, endHour, intervalMinutes, alreadyAllocated
     );

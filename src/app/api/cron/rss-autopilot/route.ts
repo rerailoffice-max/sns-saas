@@ -29,6 +29,7 @@ import {
   getRecentPostTitles,
   getRecentThreadsPostTexts,
   filterDuplicatesWithPostedTexts,
+  getRecentSourceUrls,
 } from "@/lib/duplicate-checker";
 import { downloadAndUploadImages } from "@/lib/media-uploader";
 import { fetchTrendingAIPosts } from "@/lib/x-trending";
@@ -216,15 +217,6 @@ async function processUser(
 
   await translateUntranslatedArticles(admin, setting.profile_id, anthropic);
 
-  // 過去48時間の使用済み記事をリセット
-  const twoDaysAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString();
-  await admin
-    .from("rss_articles")
-    .update({ is_used: false })
-    .eq("profile_id", setting.profile_id)
-    .eq("is_used", true)
-    .gte("published_at", twoDaysAgo);
-
   // JST当日0:00基準で記事取得
   const nowJst = new Date(now.getTime() + JST_OFFSET);
   const todayStartJst = new Date(Date.UTC(
@@ -338,6 +330,19 @@ async function processUser(
   const removedCount = beforeCount - allCandidates.length;
   if (removedCount > 0) {
     console.log(`重複チェック: ${removedCount}件除外、残り${allCandidates.length}件`);
+  }
+
+  // source_urlベースの完全一致重複チェック（キーワード閾値では漏れるケースを補完）
+  const recentSourceUrls = await getRecentSourceUrls(admin, setting.profile_id, 7);
+  if (recentSourceUrls.size > 0) {
+    const beforeUrlDedup = allCandidates.length;
+    allCandidates = allCandidates.filter(
+      (a) => !recentSourceUrls.has(a.link as string)
+    ) as ArticleCandidate[];
+    const urlDedupRemoved = beforeUrlDedup - allCandidates.length;
+    if (urlDedupRemoved > 0) {
+      console.log(`URL重複チェック: ${urlDedupRemoved}件除外、残り${allCandidates.length}件`);
+    }
   }
 
   // MIN_PICKS: 5回/日なので各回1件以上あればOK

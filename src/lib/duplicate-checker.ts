@@ -181,3 +181,29 @@ export function filterDuplicatesWithPostedTexts<T extends { title: string }>(
       !isDuplicateWithPostedText(a.title, postedTexts)
   );
 }
+
+/**
+ * 過去N日間のドラフトから source_url を収集（URLベースの完全一致重複チェック用）
+ * キーワード閾値より確実に同一記事の重複を検出する
+ */
+export async function getRecentSourceUrls(
+  admin: ReturnType<typeof createAdminClient>,
+  profileId: string,
+  days: number = 7
+): Promise<Set<string>> {
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data: drafts } = await admin
+    .from("drafts")
+    .select("metadata")
+    .eq("profile_id", profileId)
+    .in("status", ["published", "scheduled", "pending_approval"])
+    .gte("created_at", since);
+
+  const urls = new Set<string>();
+  for (const draft of drafts ?? []) {
+    const meta = draft.metadata as Record<string, string> | null;
+    if (meta?.source_url) urls.add(meta.source_url);
+  }
+  return urls;
+}
