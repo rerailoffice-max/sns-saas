@@ -24,6 +24,7 @@ const requestSchema = z.object({
   arrange_prompt: z.string().max(500).optional(),
   long_form: z.boolean().optional(),
   source_url: z.string().optional(),
+  source_text: z.string().max(10000).optional(),
   thread_mode: z.boolean().optional().default(false),
   hook_pattern: z.enum(["A", "B", "C", "D", "E", "F", "G", "H", "I"]).optional(),
   thread_count: z.number().min(1).max(6).optional(),
@@ -69,6 +70,7 @@ export async function POST(request: NextRequest) {
     hook_pattern,
     thread_count,
     platform,
+    source_text,
   } = parsed.data;
 
   let source_url = parsed.data.source_url;
@@ -107,8 +109,8 @@ export async function POST(request: NextRequest) {
       apiKey: process.env.ANTHROPIC_API_KEY,
     });
 
-    // source_url または thread_mode の場合: スレッド形式生成
-    if (source_url || thread_mode) {
+    // source_text, source_url, または thread_mode の場合: スレッド形式生成
+    if (source_text || source_url || thread_mode) {
       let modelAnalysis: AnalysisResult | null = null;
       if (style === "model" && model_account_id) {
         const { data: modelAccount } = await supabase
@@ -141,7 +143,38 @@ export async function POST(request: NextRequest) {
       let userContent: string;
       let fetchedMediaUrls: string[] = [];
       let fetchedSource = "";
-      if (source_url) {
+      if (source_text) {
+        // ユーザーが手動で貼り付けたテキストを使用
+        const articleBody = source_text.slice(0, 5000);
+        const threadCountInstruction = thread_count === 1
+          ? "単発の長文投稿（500字以内）を1つ生成してください。"
+          : thread_count
+            ? `スレッドは${thread_count}件で構成してください。`
+            : "テキストの情報量に応じて最適なスレッド数（2-5件）を選んでください。";
+
+        const longFormInstruction = long_form
+          ? "6. ★長文モード: 全投稿（フック除く）を400-500字の詳細解説にしてください。数字・背景・影響を具体的に。"
+          : "";
+        const arrangeInstruction = arrange_prompt
+          ? `7. ★ユーザーのアレンジ指示: ${arrange_prompt}`
+          : "";
+
+        userContent = `以下のテキストをもとに、バズりやすい投稿を生成してください。
+
+## 貼り付けテキスト
+${articleBody}
+
+## 生成ルール
+1. ★重要: 貼り付けられたテキストの内容・主張を忠実に反映してください。テキストと無関係な内容を生成しないでください。
+2. その上で、関連する最新動向・背景・具体的な数字を補完し、元テキストより有益で情報密度の高い投稿にしてください
+3. 情報量が多い場合は投稿2以降を400-500字の長文解説にしてください
+4. ${threadCountInstruction}
+5. JSON文字列配列で返してください（例: ["投稿1", "投稿2", ...])
+${longFormInstruction}
+${arrangeInstruction}`.trim();
+
+        console.log(`[ai/generate-post] 貼り付けテキスト使用: textLen=${source_text.length}`);
+      } else if (source_url) {
         const urlContent = await fetchUrlContent(source_url);
         fetchedSource = urlContent.source;
         if (urlContent.error || !urlContent.text) {

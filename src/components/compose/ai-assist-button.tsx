@@ -68,6 +68,7 @@ export function AiAssistButton({
   // 統合フォーム
   const [theme, setTheme] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
+  const [sourceText, setSourceText] = useState("");
   const [arrangePrompt, setArrangePrompt] = useState("");
   const [hookPattern, setHookPattern] = useState("auto");
   const [threadCount, setThreadCount] = useState("auto");
@@ -103,8 +104,8 @@ export function AiAssistButton({
   };
 
   const handleGenerate = async () => {
-    if (!theme.trim() && !sourceUrl.trim()) {
-      toast.error("テーマまたはURLを入力してください");
+    if (!theme.trim() && !sourceUrl.trim() && !sourceText.trim()) {
+      toast.error("テーマ、URL、またはテキストを入力してください");
       return;
     }
 
@@ -123,7 +124,12 @@ export function AiAssistButton({
         selected_models: selectedResearchModels.length > 0 ? selectedResearchModels : undefined,
       };
 
-      if (sourceUrl.trim()) {
+      if (sourceText.trim()) {
+        payload.source_text = sourceText.trim();
+        payload.thread_mode = true;
+        payload.hook_pattern = hookPattern === "auto" ? undefined : hookPattern;
+        payload.thread_count = parsedCount;
+      } else if (sourceUrl.trim()) {
         payload.source_url = sourceUrl;
         payload.thread_mode = true;
         payload.hook_pattern = hookPattern === "auto" ? undefined : hookPattern;
@@ -271,6 +277,18 @@ export function AiAssistButton({
                   className="pl-9"
                 />
               </div>
+            </div>
+            <div>
+              <label className="text-sm font-medium">テキスト貼り付け（任意）</label>
+              <Textarea
+                placeholder="URLで読み取れない場合、記事やツイートの本文をここに貼り付けてください"
+                value={sourceText}
+                onChange={(e) => setSourceText(e.target.value)}
+                className="mt-1 min-h-[100px] text-sm"
+              />
+              {sourceText.trim() && (
+                <p className="text-xs text-muted-foreground mt-1">{sourceText.length}文字</p>
+              )}
             </div>
           </div>
 
@@ -485,7 +503,7 @@ export function AiAssistButton({
           {/* 生成ボタン */}
           <Button
             onClick={handleGenerate}
-            disabled={isGenerating || (!theme.trim() && !sourceUrl.trim())}
+            disabled={isGenerating || (!theme.trim() && !sourceUrl.trim() && !sourceText.trim())}
             className="w-full"
           >
             {isGenerating ? (
