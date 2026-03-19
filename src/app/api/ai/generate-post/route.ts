@@ -392,8 +392,24 @@ ${arrangeInstructionTheme}`.trim();
       }
     }
 
-    const generated = JSON.parse(jsonStr);
-    const posts = Array.isArray(generated) ? generated : (generated.posts ?? []);
+    let posts: Array<{ text: string; style?: string }> = [];
+    try {
+      const generated = JSON.parse(jsonStr);
+      posts = Array.isArray(generated) ? generated : (generated.posts ?? []);
+    } catch {
+      // JSON parse失敗時: 正規表現で文字列を抽出して復元
+      const partialMatch = jsonStr.match(/"([^"]{10,})"/g);
+      if (partialMatch && partialMatch.length > 0) {
+        posts = partialMatch.map((s: string, i: number) => ({
+          text: s.slice(1, -1).replace(/\\n/g, "\n").replace(/\\"/g, '"'),
+          style: `投稿${i + 1}`,
+        }));
+        console.warn(`単発JSON parse失敗 → 正規表現で${posts.length}件復元`);
+      } else {
+        posts = [{ text: responseText.slice(0, 500), style: "投稿1" }];
+        console.warn("単発JSON parse完全失敗 → レスポンスを1投稿として復元");
+      }
+    }
 
     return NextResponse.json({
       data: {
