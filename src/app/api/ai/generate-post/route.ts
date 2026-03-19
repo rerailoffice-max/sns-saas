@@ -361,7 +361,7 @@ ${arrangeInstructionTheme}`.trim();
 
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
-      max_tokens: 2000,
+      max_tokens: 8192,
       messages: [
         {
           role: "user",
@@ -420,18 +420,11 @@ ${arrangeInstructionTheme}`.trim();
     });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    console.error("AI生成エラー:", errMsg);
-
-    // JSON parse失敗の場合は具体的なメッセージ
-    if (errMsg.includes("JSON") || errMsg.includes("Unexpected token")) {
-      return NextResponse.json(
-        { error: "AI応答の解析に失敗しました。入力テキストが長すぎる可能性があります。テキストを短くして再度お試しください。" },
-        { status: 500 }
-      );
-    }
+    const errStack = err instanceof Error ? err.stack?.slice(0, 300) : "";
+    console.error("AI生成エラー:", errMsg, errStack);
 
     return NextResponse.json(
-      { error: `AI投稿生成に失敗しました: ${errMsg.slice(0, 100)}` },
+      { error: `AI投稿生成に失敗しました: ${errMsg.slice(0, 200)}` },
       { status: 500 }
     );
   }
