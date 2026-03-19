@@ -1,7 +1,8 @@
 /**
- * Gemini (Nano Banana Pro) を使ったインフォグラフィック画像生成
+ * Gemini 3.1 Flash Image (Nano Banana 2) を使ったインフォグラフィック画像生成
  *
  * 記事内容からコンサルティングファーム風の図解画像を生成する
+ * Gemini 3.1はテキストレンダリングが改善され4K出力対応
  * 失敗時は null を返し、パイプラインを止めない
  */
 
@@ -65,7 +66,7 @@ export async function generateInfographicImage(
 ${keyPoints}`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-image",
+      model: "gemini-3.1-flash-image-preview",
       contents: [
         {
           role: "user",
