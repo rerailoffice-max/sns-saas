@@ -125,7 +125,8 @@ export function AiAssistButton({
       };
 
       if (sourceText.trim()) {
-        payload.source_text = sourceText.trim();
+        // 不正なサロゲートペア（壊れた絵文字等）を除去してJSONパースエラーを防止
+        payload.source_text = sourceText.trim().replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");
         payload.thread_mode = true;
         payload.hook_pattern = hookPattern === "auto" ? undefined : hookPattern;
         payload.thread_count = parsedCount;
