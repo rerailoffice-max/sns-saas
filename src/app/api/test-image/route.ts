@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
 3. 驚異的な普及速度`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-image-generation",
+      model: "gemini-2.5-flash-image",
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: { responseModalities: ["IMAGE", "TEXT"] },
     });
