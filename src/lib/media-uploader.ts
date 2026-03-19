@@ -111,6 +111,58 @@ async function uploadSingleImage(
   }
 }
 
+/**
+ * Buffer（base64デコード済み）を Supabase Storage にアップロードする
+ * Gemini画像生成などで得られたバイナリデータ用
+ */
+export async function uploadBufferImage(
+  buffer: Buffer,
+  mimeType: string,
+  draftId: string
+): Promise<string | null> {
+  if (!ALLOWED_TYPES.has(mimeType)) {
+    console.warn(`対応していない画像タイプ: ${mimeType}`);
+    return null;
+  }
+
+  if (buffer.byteLength > MAX_FILE_SIZE) {
+    console.warn(`ファイルサイズ超過: ${buffer.byteLength} bytes`);
+    return null;
+  }
+
+  try {
+    const admin = createAdminClient();
+    const ext = contentTypeToExt(mimeType);
+    const filename = `infographic_${Date.now()}.${ext}`;
+    const storagePath = `drafts/${draftId}/${filename}`;
+
+    const { error: uploadError } = await admin.storage
+      .from("post-media")
+      .upload(storagePath, buffer, {
+        contentType: mimeType,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.warn(`インフォグラフィックアップロード失敗: ${uploadError.message}`);
+      return null;
+    }
+
+    const { data: publicUrlData } = admin.storage
+      .from("post-media")
+      .getPublicUrl(storagePath);
+
+    console.log(`インフォグラフィックアップロード完了: ${publicUrlData.publicUrl}`);
+    return publicUrlData.publicUrl;
+  } catch (err) {
+    console.warn(
+      "インフォグラフィックアップロードエラー:",
+      err instanceof Error ? err.message : err
+    );
+    return null;
+  }
+}
+
 function contentTypeToExt(contentType: string): string {
   const map: Record<string, string> = {
     "image/jpeg": "jpg",

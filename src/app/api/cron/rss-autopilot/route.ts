@@ -31,7 +31,8 @@ import {
   filterDuplicatesWithPostedTexts,
   getRecentSourceUrls,
 } from "@/lib/duplicate-checker";
-import { downloadAndUploadImages } from "@/lib/media-uploader";
+import { downloadAndUploadImages, uploadBufferImage } from "@/lib/media-uploader";
+import { generateInfographicImage } from "@/lib/image-generator";
 import { fetchTrendingAIPosts } from "@/lib/x-trending";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -499,7 +500,7 @@ URL: ${sourceUrl}
 ${articleBody && !xThreadContext ? `\n## 投稿本文\n${articleBody}` : ""}${xThreadContext}
 
 ## スレッド構造（必ずこの順番で）
-**投稿1（フック）**: 読者が思わず止まる衝撃的な1〜2行 + 改行 + 元投稿URL（${sourceUrl}）
+**投稿1（フック）**: 読者が思わず止まる衝撃的な1〜2行
 **投稿2（要点）**: ①②③形式のリスト。具体的な数字・固有名詞・新事実を必ず含める（300〜400字）
 **投稿3（深掘り）**: なぜこれが重要か・業界への影響・日本市場への示唆（300〜450字）
 **投稿4（まとめ）**: 読者への問いかけ or 行動提案（200字以内・省略可）
@@ -509,7 +510,7 @@ ${xThreadTexts && xThreadTexts.length > 1 ? "\n※ 元スレッドの構造（�
 - 元投稿の情報だけで終わらせず、関連する最新動向・背景・具体的な数字を補完すること
 - 「〜です」「〜ます」ではなく体言止めや「〜だ」調のカジュアルなトーン
 - AI的な紋切り型表現（「〜の世界」「まさに」「革命」）は禁止
-- 情報源・元投稿URLは投稿1にのみ記載（他の投稿には不要）
+- 情報源URLは含めないこと（投稿の品質を優先）
 - JSON文字列配列で返してください（例: ["投稿1テキスト", "投稿2テキスト", ...]）`;
       } else {
         const refUrl = jaArticle ? jaArticle.url : (article.link as string);
@@ -556,8 +557,39 @@ ${xThreadTexts && xThreadTexts.length > 1 ? "\n※ 元スレッドの構造（�
         if (arrayMatch) jsonStr = arrayMatch[0];
       }
 
-      const threadPosts = JSON.parse(jsonStr) as string[];
+      let threadPosts = JSON.parse(jsonStr) as string[];
       if (!Array.isArray(threadPosts) || threadPosts.length === 0) continue;
+
+      // Xソースの場合、X/Twitter URLを除去（Threadsの投稿品質向上）
+      if (isXSource) {
+        threadPosts = threadPosts.map((post) =>
+          post.replace(/https?:\/\/(x\.com|twitter\.com)\/\S+/gi, "").replace(/\n{3,}/g, "\n\n").trim()
+        );
+      }
+
+      // インフォグラフィック画像を生成（失敗してもパイプラインは継続）
+      if (process.env.GOOGLE_AI_API_KEY) {
+        try {
+          const imgResult = await generateInfographicImage({
+            articleTitle: article.title as string,
+            articleSummary: ((article.description ?? articleBody) as string).slice(0, 1000),
+            threadPosts,
+          });
+          if (imgResult) {
+            const infographicUrl = await uploadBufferImage(
+              imgResult.buffer,
+              imgResult.mimeType,
+              tempDraftId,
+            );
+            if (infographicUrl) {
+              mediaUrls.unshift(infographicUrl);
+              console.log(`インフォグラフィック生成完了: ${infographicUrl}`);
+            }
+          }
+        } catch (err) {
+          console.warn("インフォグラフィック生成エラー:", err);
+        }
+      }
 
       // 下書き保存（pending_approval）
       const { data: draft, error: draftError } = await admin
