@@ -14,6 +14,16 @@ import { searchJapaneseArticle } from "@/lib/brave-search";
 import { buildPostPrompt, buildSinglePostPrompt } from "@/lib/prompt-engine";
 import type { AnalysisResult } from "@/types/database";
 
+/**
+ * 不正なサロゲートペア（壊れた絵文字等）を除去
+ * コピペ時に片割れだけ残るケースを防止
+ */
+function sanitizeText(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, "")
+    .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");
+}
+
 const requestSchema = z.object({
   theme: z.string().min(1, "テーマは必須です").max(200),
   account_id: z.string().uuid(),
@@ -59,7 +69,6 @@ export async function POST(request: NextRequest) {
   }
 
   const {
-    theme,
     style,
     model_account_id,
     selected_models,
@@ -70,8 +79,11 @@ export async function POST(request: NextRequest) {
     hook_pattern,
     thread_count,
     platform,
-    source_text,
   } = parsed.data;
+
+  // 不正サロゲートペアをサニタイズ（コピペ時の壊れた絵文字対策）
+  const theme = sanitizeText(parsed.data.theme);
+  const source_text = parsed.data.source_text ? sanitizeText(parsed.data.source_text) : undefined;
 
   let source_url = parsed.data.source_url;
   if (source_url && !/^https?:\/\//i.test(source_url)) {
