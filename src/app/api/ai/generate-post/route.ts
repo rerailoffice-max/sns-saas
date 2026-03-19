@@ -289,8 +289,23 @@ ${arrangeInstructionTheme}`.trim();
         if (arrayMatch) jsonStr = arrayMatch[0];
       }
 
-      let threadPosts = JSON.parse(jsonStr) as string[];
-      if (!Array.isArray(threadPosts)) threadPosts = [];
+      let threadPosts: string[] = [];
+      try {
+        const parsed = JSON.parse(jsonStr);
+        threadPosts = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        // JSON parse失敗時: 不完全なJSONを修復試行
+        // 末尾が切れている場合、最後の完全な文字列要素まで抽出
+        const partialMatch = jsonStr.match(/"([^"]+)"/g);
+        if (partialMatch && partialMatch.length > 0) {
+          threadPosts = partialMatch.map((s: string) => s.slice(1, -1).replace(/\\n/g, "\n").replace(/\\"/g, '"'));
+          console.warn(`JSON parse失敗 → 正規表現で${threadPosts.length}件復元`);
+        } else {
+          // 最終フォールバック: レスポンス全体を1投稿として扱う
+          threadPosts = [responseText.slice(0, 500)];
+          console.warn("JSON parse完全失敗 → レスポンスを1投稿として復元");
+        }
+      }
 
       if (
         source_url &&
