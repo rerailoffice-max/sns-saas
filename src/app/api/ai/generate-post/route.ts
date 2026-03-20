@@ -12,6 +12,8 @@ import { z } from "zod";
 import { fetchUrlContent } from "@/lib/url-fetcher";
 import { searchJapaneseArticle } from "@/lib/brave-search";
 import { buildPostPrompt, buildSinglePostPrompt } from "@/lib/prompt-engine";
+import { generateInfographicImage } from "@/lib/image-generator";
+import { uploadBufferImage } from "@/lib/media-uploader";
 import type { AnalysisResult } from "@/types/database";
 
 /**
@@ -326,6 +328,30 @@ ${arrangeInstructionTheme}`.trim();
         !threadPosts[0].includes(source_url)
       ) {
         threadPosts[0] = threadPosts[0].trimEnd() + "\n\n" + source_url;
+      }
+
+      // インフォグラフィック画像を生成（失敗してもテキスト結果は返す）
+      if (process.env.GOOGLE_AI_API_KEY && threadPosts.length >= 2) {
+        try {
+          const imgResult = await generateInfographicImage({
+            articleTitle: theme,
+            articleSummary: (source_text ?? theme).slice(0, 1000),
+            threadPosts,
+          });
+          if (imgResult) {
+            const draftId = `compose_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+            const infographicUrl = await uploadBufferImage(
+              imgResult.buffer,
+              imgResult.mimeType,
+              draftId,
+            );
+            if (infographicUrl) {
+              fetchedMediaUrls.unshift(infographicUrl);
+            }
+          }
+        } catch (err) {
+          console.warn("投稿作成: インフォグラフィック生成エラー:", err);
+        }
       }
 
       const posts = threadPosts.map((text, i) => ({
