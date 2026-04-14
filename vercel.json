@@ -4,10 +4,6 @@
   "regions": ["hnd1"],
   "crons": [
     {
-      "path": "/api/cron/execute-posts",
-      "schedule": "* * * * *"
-    },
-    {
       "path": "/api/cron/fetch-insights",
       "schedule": "0 */2 * * *"
     },
@@ -18,14 +14,6 @@
     {
       "path": "/api/cron/sync-models",
       "schedule": "0 3 * * *"
-    },
-    {
-      "path": "/api/cron/rss-autopilot",
-      "schedule": "0 19,23,3,7,11 * * *"
-    },
-    {
-      "path": "/api/cron/confirm-autopilot",
-      "schedule": "*/5 * * * *"
     }
   ],
   "headers": [
