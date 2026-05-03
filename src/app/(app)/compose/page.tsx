@@ -51,6 +51,13 @@ export default async function ComposePage({ searchParams }: ComposePageProps) {
     .eq("is_active", true)
     .order("created_at", { ascending: true });
 
+  const { data: modelAccounts } = await supabase
+    .from("model_accounts")
+    .select("id, username, display_name")
+    .eq("profile_id", user.id)
+    .eq("status", "active")
+    .order("created_at", { ascending: true });
+
   let initialDraft: {
     id: string;
     text: string;
