@@ -85,10 +85,15 @@ export function AiAssistButton({
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedThread, setGeneratedThread] = useState<string[]>([]);
   const [generatedMediaUrls, setGeneratedMediaUrls] = useState<string[]>([]);
+  const [perPostMedia, setPerPostMedia] = useState<Array<{ url: string; type: "video" | "image" } | null>>([]);
   const [lastSystemPrompt, setLastSystemPrompt] = useState<string | null>(null);
   const [promptOpen, setPromptOpen] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
+
+  // deep モード（URLあり）のジョブ状態
+  const [deepJobId, setDeepJobId] = useState<string | null>(null);
+  const [deepProgress, setDeepProgress] = useState<string>("");
 
   const toggleResearchModel = (username: string) => {
     setSelectedResearchModels((prev) =>
@@ -112,6 +117,9 @@ export function AiAssistButton({
     setIsGenerating(true);
     setGeneratedThread([]);
     setGeneratedMediaUrls([]);
+    setPerPostMedia([]);
+    setDeepJobId(null);
+    setDeepProgress("");
 
     try {
       const isThreadMode = sourceUrl.trim() || threadCount !== "auto" || parseInt(threadCount) > 0;
@@ -168,12 +176,29 @@ export function AiAssistButton({
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error ?? "生成に失敗しました");
+      const rawText = await res.text();
+      let data: { data?: { mode?: string; job_id?: string; thread_posts?: string[]; posts?: Array<{ text: string }>; media_urls?: string[]; system_prompt?: string }; error?: string };
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        throw new Error(`生成に失敗しました（HTTP ${res.status}）`);
       }
 
-      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error ?? `生成に失敗しました（HTTP ${res.status}）`);
+      }
+      if (!data.data) {
+        throw new Error("レスポンスにデータがありません");
+      }
+
+      // deep モード: ジョブをポーリング
+      if (data.data.mode === "deep" && data.data.job_id) {
+        setDeepJobId(data.data.job_id);
+        setDeepProgress("ジョブ受付完了。ワーカー待機中…");
+        await pollDeepJob(data.data.job_id);
+        return;
+      }
+
       const threadPosts = data.data.thread_posts ?? data.data.posts?.map((p: { text: string }) => p.text) ?? [];
       setGeneratedThread(threadPosts);
       setGeneratedMediaUrls(data.data.media_urls ?? []);
@@ -185,11 +210,59 @@ export function AiAssistButton({
     }
   };
 
+  /**
+   * deep ジョブを3秒間隔でポーリングし、状態を UI に反映。
+   * 最大10分でタイムアウト。
+   */
+  const pollDeepJob = async (jobId: string) => {
+    const startedAt = Date.now();
+    const maxMs = 10 * 60 * 1000;
+    while (Date.now() - startedAt < maxMs) {
+      await new Promise((r) => setTimeout(r, 3000));
+      try {
+        const res = await fetch(`/api/ai/generate-post?job_id=${jobId}`);
+        if (!res.ok) continue;
+        const { data: job } = await res.json();
+        if (!job) continue;
+        if (job.progress) setDeepProgress(job.progress);
+        if (job.status === "done" && job.result_json) {
+          const r = job.result_json as {
+            posts?: Array<{ text: string; media_url?: string; media_type?: "video" | "image" }>;
+          };
+          const posts = r.posts ?? [];
+          setGeneratedThread(posts.map((p) => p.text));
+          setPerPostMedia(
+            posts.map((p) => (p.media_url ? { url: p.media_url, type: p.media_type ?? "image" } : null))
+          );
+          setDeepProgress("完了");
+          return;
+        }
+        if (job.status === "error") {
+          throw new Error(job.error ?? "ワーカーでエラーが発生しました");
+        }
+        if (job.status === "cancelled") {
+          throw new Error("ジョブがキャンセルされました");
+        }
+      } catch (err) {
+        // ネットワーク一時エラーは継続。明示エラーは中断
+        if (err instanceof Error && /ワーカー|キャンセル/.test(err.message)) {
+          throw err;
+        }
+      }
+    }
+    throw new Error("ジョブがタイムアウトしました（10分）");
+  };
+
+  // deep モード結果がある場合、投稿ごとのメディアを優先的にエディタに渡す
+  const effectiveMediaUrls = perPostMedia.length > 0
+    ? perPostMedia.flatMap((m) => (m ? [m.url] : []))
+    : generatedMediaUrls;
+
   const handleInsertThread = () => {
     if (generatedThread.length === 1) {
-      onInsert(generatedThread[0], generatedMediaUrls);
+      onInsert(generatedThread[0], effectiveMediaUrls);
     } else {
-      onInsert(generatedThread.join("\n\n---\n\n"), generatedMediaUrls);
+      onInsert(generatedThread.join("\n\n---\n\n"), effectiveMediaUrls);
     }
     setOpen(false);
     toast.success("投稿文を挿入しました");
@@ -201,14 +274,22 @@ export function AiAssistButton({
 
     try {
       const isThread = generatedThread.length >= 2;
+      const threadMedia = perPostMedia.length > 0
+        ? perPostMedia.map((m) => (m ? m.url : null))
+        : undefined;
       const payload = {
         account_id: accountId,
         text: isThread ? generatedThread.join("\n\n") : generatedThread[0],
         hashtags: [],
         source: "ai" as const,
-        media_urls: generatedMediaUrls,
+        media_urls: effectiveMediaUrls,
         metadata: isThread
-          ? { thread_posts: generatedThread, thread_mode: true, source_url: sourceUrl || undefined }
+          ? {
+              thread_posts: generatedThread,
+              thread_mode: true,
+              source_url: sourceUrl || undefined,
+              thread_media: threadMedia,
+            }
           : { source_url: sourceUrl || undefined },
       };
 
@@ -520,10 +601,21 @@ export function AiAssistButton({
             )}
           </Button>
 
+          {/* deep モード進捗 */}
+          {isGenerating && deepJobId && (
+            <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm">
+              <div className="flex items-center gap-2 font-medium">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                詳細生成（動画解析+ChatGPT解説画像）
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">{deepProgress || "進捗待ち…"}</p>
+            </div>
+          )}
+
           {/* 生成結果 */}
           {generatedThread.length > 0 && (
             <div className="space-y-3">
-              {generatedMediaUrls.length > 0 && (
+              {generatedMediaUrls.length > 0 && perPostMedia.length === 0 && (
                 <div>
                   <p className="text-sm font-medium mb-2">取得メディア</p>
                   <div className="flex gap-2 overflow-x-auto">
@@ -543,33 +635,53 @@ export function AiAssistButton({
                 生成結果（{generatedThread.length === 1 ? "単発" : `${generatedThread.length}件スレッド`}）
               </p>
 
-              {generatedThread.map((text, index) => (
-                <Card key={index}>
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <Badge variant="outline" className="mb-2 text-xs">
-                          {generatedThread.length === 1 ? "単発投稿" : `投稿${index + 1}`}
-                        </Badge>
-                        <p className="text-sm whitespace-pre-wrap">{text}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">{text.length}文字</p>
+              {generatedThread.map((text, index) => {
+                const media = perPostMedia[index];
+                return (
+                  <Card key={index}>
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <Badge variant="outline" className="mb-2 text-xs">
+                            {generatedThread.length === 1 ? "単発投稿" : `投稿${index + 1}`}
+                          </Badge>
+                          <p className="text-sm whitespace-pre-wrap">{text}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{text.length}文字</p>
+                          {media && (
+                            <div className="mt-2">
+                              {media.type === "video" ? (
+                                <video
+                                  src={media.url}
+                                  controls
+                                  className="max-h-48 rounded-md border"
+                                />
+                              ) : (
+                                <img
+                                  src={media.url}
+                                  alt={`投稿${index + 1}の解説画像`}
+                                  className="max-h-48 rounded-md border object-contain"
+                                />
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="shrink-0"
+                          onClick={() => handleCopy(text, index)}
+                        >
+                          {copiedIndex === index ? (
+                            <Check className="h-4 w-4 text-green-500" />
+                          ) : (
+                            <Copy className="h-4 w-4" />
+                          )}
+                        </Button>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="shrink-0"
-                        onClick={() => handleCopy(text, index)}
-                      >
-                        {copiedIndex === index ? (
-                          <Check className="h-4 w-4 text-green-500" />
-                        ) : (
-                          <Copy className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                );
+              })}
 
               {/* アクションボタン */}
               <div className="grid grid-cols-2 gap-2">
