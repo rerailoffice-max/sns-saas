@@ -219,35 +219,37 @@ export function AiAssistButton({
     const maxMs = 10 * 60 * 1000;
     while (Date.now() - startedAt < maxMs) {
       await new Promise((r) => setTimeout(r, 3000));
+      let job: {
+        status?: string;
+        progress?: string;
+        error?: string;
+        result_json?: { posts?: Array<{ text: string; media_url?: string; media_type?: "video" | "image" }> };
+      } | null = null;
       try {
         const res = await fetch(`/api/ai/generate-post?job_id=${jobId}`);
         if (!res.ok) continue;
-        const { data: job } = await res.json();
-        if (!job) continue;
-        if (job.progress) setDeepProgress(job.progress);
-        if (job.status === "done" && job.result_json) {
-          const r = job.result_json as {
-            posts?: Array<{ text: string; media_url?: string; media_type?: "video" | "image" }>;
-          };
-          const posts = r.posts ?? [];
-          setGeneratedThread(posts.map((p) => p.text));
-          setPerPostMedia(
-            posts.map((p) => (p.media_url ? { url: p.media_url, type: p.media_type ?? "image" } : null))
-          );
-          setDeepProgress("完了");
-          return;
-        }
-        if (job.status === "error") {
-          throw new Error(job.error ?? "ワーカーでエラーが発生しました");
-        }
-        if (job.status === "cancelled") {
-          throw new Error("ジョブがキャンセルされました");
-        }
-      } catch (err) {
-        // ネットワーク一時エラーは継続。明示エラーは中断
-        if (err instanceof Error && /ワーカー|キャンセル/.test(err.message)) {
-          throw err;
-        }
+        const json = await res.json();
+        job = json.data ?? null;
+      } catch {
+        // ネットワーク一時エラーは継続
+        continue;
+      }
+      if (!job) continue;
+      if (job.progress) setDeepProgress(job.progress);
+      if (job.status === "done" && job.result_json) {
+        const posts = job.result_json.posts ?? [];
+        setGeneratedThread(posts.map((p) => p.text));
+        setPerPostMedia(
+          posts.map((p) => (p.media_url ? { url: p.media_url, type: p.media_type ?? "image" } : null))
+        );
+        setDeepProgress("完了");
+        return;
+      }
+      if (job.status === "error") {
+        throw new Error(`ワーカーエラー: ${job.error ?? "詳細不明"}`);
+      }
+      if (job.status === "cancelled") {
+        throw new Error("ジョブがキャンセルされました");
       }
     }
     throw new Error("ジョブがタイムアウトしました（10分）");
