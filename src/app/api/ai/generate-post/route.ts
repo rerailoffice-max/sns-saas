@@ -1,24 +1,25 @@
 /**
  * AI投稿生成API
- * POST /api/ai/generate-post
  *
- * 7,000件超の研究データに基づくプロンプトエンジンで投稿文を生成。
- * スレッド形式（URL/テーマ）と3パターン単発に対応。
+ * 2系統:
+ *  - URLあり (deep): ai_generate_jobs に enqueue → ai-lab-bot worker が
+ *    動画DL/文字起こし/Claude生成/ChatGPT解説画像 を実行 → 結果書き戻し。
+ *    クライアントは GET で job_id をポーリング。
+ *  - URLなし (in-process): テーマ/貼付テキストから Claude が直接生成。
+ *    画像生成は行わない。
+ *
+ * Xリンクは「絶対に貼らない」を守るため、APIのレスポンス手前でも stripXLinks を適用。
  */
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
-import { fetchUrlContent } from "@/lib/url-fetcher";
-import { searchJapaneseArticle } from "@/lib/brave-search";
 import { buildPostPrompt, buildSinglePostPrompt } from "@/lib/prompt-engine";
-import { generateInfographicImage } from "@/lib/image-generator";
-import { uploadBufferImage } from "@/lib/media-uploader";
+import { stripXLinks } from "@/lib/x-link-sanitizer";
 import type { AnalysisResult } from "@/types/database";
 
 /**
  * 不正なサロゲートペア（壊れた絵文字等）を除去
- * コピペ時に片割れだけ残るケースを防止
  */
 function sanitizeText(text: string): string {
   // eslint-disable-next-line no-control-regex
@@ -42,6 +43,37 @@ const requestSchema = z.object({
   thread_count: z.number().min(1).max(6).optional(),
   platform: z.enum(["threads", "x"]).optional().default("threads"),
 });
+
+/**
+ * GET /api/ai/generate-post?job_id=...
+ * deep モードのジョブ状態をポーリング取得
+ */
+export async function GET(request: NextRequest) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
+  }
+
+  const jobId = request.nextUrl.searchParams.get("job_id");
+  if (!jobId) {
+    return NextResponse.json({ error: "job_id 必須" }, { status: 400 });
+  }
+
+  const { data: job, error } = await supabase
+    .from("ai_generate_jobs")
+    .select("id, status, progress, result_json, error, source_url, created_at")
+    .eq("id", jobId)
+    .single();
+
+  if (error || !job) {
+    return NextResponse.json({ error: "ジョブが見つかりません" }, { status: 404 });
+  }
+
+  return NextResponse.json({ data: job });
+}
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
@@ -81,9 +113,9 @@ export async function POST(request: NextRequest) {
     hook_pattern,
     thread_count,
     platform,
+    account_id,
   } = parsed.data;
 
-  // 不正サロゲートペアをサニタイズ（コピペ時の壊れた絵文字対策）
   const theme = sanitizeText(parsed.data.theme);
   const source_text = parsed.data.source_text ? sanitizeText(parsed.data.source_text) : undefined;
 
@@ -92,15 +124,72 @@ export async function POST(request: NextRequest) {
     source_url = `https://${source_url}`;
   }
 
+  // ─────────────────────────────────────────
+  // deep モード: URLが指定されたらジョブ enqueue
+  //   動画DL/文字起こし/Claude生成/ChatGPT画像生成は ai-lab-bot worker が実行
+  // ─────────────────────────────────────────
+  if (source_url) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("id", user.id)
+      .single();
+    if (!profile) {
+      return NextResponse.json({ error: "プロフィール未作成" }, { status: 400 });
+    }
+
+    const params = {
+      theme,
+      account_id,
+      platform,
+      thread_mode,
+      thread_count,
+      hook_pattern,
+      long_form,
+      arrange_prompt,
+      style,
+      model_account_id,
+      selected_models,
+      custom_instructions,
+      source_text,
+    };
+
+    const { data: job, error: jobErr } = await supabase
+      .from("ai_generate_jobs")
+      .insert({
+        profile_id: profile.id,
+        account_id,
+        source_url,
+        params_json: params,
+        status: "queued",
+        progress: "ジョブ受付完了。ワーカー待機中…",
+      })
+      .select("id")
+      .single();
+
+    if (jobErr || !job) {
+      console.error("[ai/generate-post] ジョブ作成失敗:", jobErr);
+      return NextResponse.json(
+        { error: `ジョブ作成に失敗: ${jobErr?.message ?? "unknown"}` },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      data: { job_id: job.id, mode: "deep", status: "queued" },
+    });
+  }
+
+  // ─────────────────────────────────────────
+  // in-process モード: URLなし。テーマ/貼付テキストから直接生成（画像なし）
+  // ─────────────────────────────────────────
   try {
-    // ユーザーのカスタムライティング指示を取得
     const { data: profile } = await supabase
       .from("profiles")
       .select("custom_writing_instructions")
       .eq("id", user.id)
       .single();
 
-    // 自分の過去投稿からパターンを参考にする
     const { data: recentPosts } = await supabase
       .from("post_insights")
       .select("post_text, likes, replies, reposts")
@@ -118,13 +207,12 @@ export async function POST(request: NextRequest) {
       .order("likes", { ascending: false })
       .limit(10);
 
-    // Claude API呼び出し
     const anthropic = new Anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY,
     });
 
-    // source_text, source_url, または thread_mode の場合: スレッド形式生成
-    if (source_text || source_url || thread_mode) {
+    // 貼付テキストありor thread_modeフラグあり → スレッド形式生成
+    if (source_text || thread_mode) {
       let modelAnalysis: AnalysisResult | null = null;
       if (style === "model" && model_account_id) {
         const { data: modelAccount } = await supabase
@@ -155,19 +243,15 @@ export async function POST(request: NextRequest) {
       });
 
       let userContent: string;
-      let fetchedMediaUrls: string[] = [];
-      let fetchedSource = "";
       if (source_text) {
-        // ユーザーが手動で貼り付けたテキストを使用
         const articleBody = source_text.slice(0, 5000);
         const threadCountInstruction = thread_count === 1
           ? "単発の長文投稿（500字以内）を1つ生成してください。"
           : thread_count
             ? `スレッドは${thread_count}件で構成してください。`
             : "テキストの情報量に応じて最適なスレッド数（2-5件）を選んでください。";
-
         const longFormInstruction = long_form
-          ? "6. ★長文モード: 全投稿（フック除く）を400-500字の詳細解説にしてください。数字・背景・影響を具体的に。"
+          ? "6. ★長文モード: 全投稿（フック除く）を400-500字の詳細解説にしてください。"
           : "";
         const arrangeInstruction = arrange_prompt
           ? `7. ★ユーザーのアレンジ指示: ${arrange_prompt}`
@@ -179,85 +263,12 @@ export async function POST(request: NextRequest) {
 ${articleBody}
 
 ## 生成ルール
-1. ★重要: 貼り付けられたテキストの内容・主張を忠実に反映してください。テキストと無関係な内容を生成しないでください。
-2. その上で、関連する最新動向・背景・具体的な数字を補完し、元テキストより有益で情報密度の高い投稿にしてください
-3. 情報量が多い場合は投稿2以降を400-500字の長文解説にしてください
+1. ★重要: 貼り付けられたテキストの内容・主張を忠実に反映してください。
+2. 関連する最新動向・背景・具体的な数字を補完し、情報密度の高い投稿にしてください。
+3. 情報量が多い場合は投稿2以降を400-500字の長文解説にしてください。
 4. ${threadCountInstruction}
-5. JSON文字列配列で返してください（例: ["投稿1", "投稿2", ...])
-${longFormInstruction}
-${arrangeInstruction}`.trim();
-
-        console.log(`[ai/generate-post] 貼り付けテキスト使用: textLen=${source_text.length}`);
-      } else if (source_url) {
-        const urlContent = await fetchUrlContent(source_url);
-        fetchedSource = urlContent.source;
-        if (urlContent.error || !urlContent.text) {
-          return NextResponse.json(
-            {
-              error: "URLの取得に失敗しました",
-              details: urlContent.error ?? "コンテンツが取得できませんでした",
-            },
-            { status: 400 }
-          );
-        }
-        fetchedMediaUrls = urlContent.mediaUrls;
-
-        console.log(`[ai/generate-post] URL取得結果: source=${urlContent.source}, title=${urlContent.title ?? "(なし)"}, textLen=${urlContent.text.length}, media=${urlContent.mediaUrls.length}`);
-        console.log(`[ai/generate-post] URL取得テキスト先頭200文字: ${urlContent.text.slice(0, 200)}`);
-
-        const articleBody = urlContent.text.slice(0, 3000);
-        const isEnglish = /^[a-zA-Z0-9\s.,!?'"()\-:;]+$/.test(
-          (urlContent.title ?? "").slice(0, 50)
-        );
-
-        let jaArticle: { url: string; title: string } | null = null;
-        if (isEnglish) {
-          try {
-            jaArticle = await searchJapaneseArticle(urlContent.title ?? "", fetchedSource);
-          } catch { /* 検索失敗時は英語URLで続行 */ }
-        }
-
-        const urlInstruction = jaArticle
-          ? `1. **投稿1の冒頭**に以下の日本語記事URLを配置してください: ${jaArticle.url}\n   （日本語記事タイトル: ${jaArticle.title}）`
-          : isEnglish
-            ? `1. **投稿1の冒頭**に元URLを配置してください: ${source_url}\n   ※海外メディアの報道として紹介してください`
-            : `1. **投稿1の冒頭**にURLを配置してください: ${source_url}`;
-
-        const threadCountInstruction = thread_count === 1
-          ? "単発の長文投稿（500字以内）を1つ生成してください。"
-          : thread_count
-            ? `スレッドは${thread_count}件で構成してください。`
-            : "記事の情報量に応じて最適なスレッド数（2-5件）を選んでください。";
-
-        const longFormInstruction = long_form
-          ? "7. ★長文モード: 全投稿（フック除く）を400-500字の詳細解説にしてください。数字・背景・影響を具体的に。"
-          : "";
-        const arrangeInstruction = arrange_prompt
-          ? `8. ★ユーザーのアレンジ指示: ${arrange_prompt}`
-          : "";
-
-        const sourceLabel = urlContent.source === "x" ? "X（Twitter）投稿" : "記事";
-        const faithfulInstruction = urlContent.source === "x"
-          ? "2. ★重要: 元のX投稿の内容・主張を忠実に反映してください。元投稿と無関係な内容を生成しないでください。その上で、関連する最新動向・背景・具体的な数字を補完してください"
-          : "2. 元記事の情報だけで終わらせず、あなたの知識から**関連する最新動向・背景・具体的な数字・業界への影響**を補完し、元記事より有益で情報密度の高い投稿にしてください";
-
-        userContent = `以下の${sourceLabel}をもとに、バズりやすい投稿を生成してください。
-
-## 元${sourceLabel}情報
-URL: ${urlContent.url}
-タイトル: ${urlContent.title ?? "（なし）"}
-${jaArticle ? `\n## 日本語記事\nタイトル: ${jaArticle.title}\nURL: ${jaArticle.url}` : ""}
-
-## ${sourceLabel}本文（抜粋）
-${articleBody}
-
-## 生成ルール
-${urlInstruction}
-${faithfulInstruction}
-3. 情報量が多い場合は投稿2以降を400-500字の長文解説にしてください（@kudooo_ai型）
-4. ${threadCountInstruction}
-5. 日本語で、分かりやすく解説
-6. JSON文字列配列で返してください（例: ["投稿1", "投稿2", ...])
+5. JSON文字列配列で返してください（例: ["投稿1", "投稿2", ...])。
+6. ★絶対禁止: x.com / twitter.com のURLは絶対に含めないでください。
 ${longFormInstruction}
 ${arrangeInstruction}`.trim();
       } else {
@@ -266,9 +277,8 @@ ${arrangeInstruction}`.trim();
           : thread_count
             ? `スレッドは${thread_count}件で構成してください。`
             : "テーマの情報量に応じて最適なスレッド数（2-5件）を選んでください。";
-
         const longFormInstructionTheme = long_form
-          ? "5. ★長文モード: 全投稿（フック除く）を400-500字の詳細解説にしてください。数字・背景・影響を具体的に。"
+          ? "5. ★長文モード: 全投稿（フック除く）を400-500字の詳細解説にしてください。"
           : "";
         const arrangeInstructionTheme = arrange_prompt
           ? `6. ★ユーザーのアレンジ指示: ${arrange_prompt}`
@@ -277,10 +287,11 @@ ${arrangeInstruction}`.trim();
         userContent = `テーマ: ${theme}
 
 ## 生成ルール
-1. 単なる紹介で終わらせず、関連する最新動向・背景知識・具体的な数字を補足し、情報密度の高い投稿にする
-2. 情報量が多い場合は投稿2以降を400-500字の長文解説にしてください
+1. 単なる紹介で終わらせず、関連する最新動向・背景知識・具体的な数字を補足し、情報密度の高い投稿にしてください。
+2. 情報量が多い場合は投稿2以降を400-500字の長文解説にしてください。
 3. ${threadCountInstruction}
-4. JSON配列（各要素は1投稿文の文字列）で返してください
+4. JSON配列（各要素は1投稿文の文字列）で返してください。
+5. ★絶対禁止: x.com / twitter.com のURLは絶対に含めないでください。
 ${longFormInstructionTheme}
 ${arrangeInstructionTheme}`.trim();
       }
@@ -308,51 +319,20 @@ ${arrangeInstructionTheme}`.trim();
         const parsed = JSON.parse(jsonStr);
         threadPosts = Array.isArray(parsed) ? parsed : [];
       } catch {
-        // JSON parse失敗時: 不完全なJSONを修復試行
-        // 末尾が切れている場合、最後の完全な文字列要素まで抽出
         const partialMatch = jsonStr.match(/"([^"]+)"/g);
         if (partialMatch && partialMatch.length > 0) {
-          threadPosts = partialMatch.map((s: string) => s.slice(1, -1).replace(/\\n/g, "\n").replace(/\\"/g, '"'));
+          threadPosts = partialMatch.map((s: string) =>
+            s.slice(1, -1).replace(/\\n/g, "\n").replace(/\\"/g, '"')
+          );
           console.warn(`JSON parse失敗 → 正規表現で${threadPosts.length}件復元`);
         } else {
-          // 最終フォールバック: レスポンス全体を1投稿として扱う
           threadPosts = [responseText.slice(0, 500)];
           console.warn("JSON parse完全失敗 → レスポンスを1投稿として復元");
         }
       }
 
-      if (
-        source_url &&
-        threadPosts.length > 0 &&
-        fetchedSource === "article" &&
-        !threadPosts[0].includes(source_url)
-      ) {
-        threadPosts[0] = threadPosts[0].trimEnd() + "\n\n" + source_url;
-      }
-
-      // インフォグラフィック画像を生成（失敗してもテキスト結果は返す）
-      if (process.env.GOOGLE_AI_API_KEY && threadPosts.length >= 2) {
-        try {
-          const imgResult = await generateInfographicImage({
-            articleTitle: theme,
-            articleSummary: (source_text ?? theme).slice(0, 1000),
-            threadPosts,
-          });
-          if (imgResult) {
-            const draftId = `compose_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-            const infographicUrl = await uploadBufferImage(
-              imgResult.buffer,
-              imgResult.mimeType,
-              draftId,
-            );
-            if (infographicUrl) {
-              fetchedMediaUrls.unshift(infographicUrl);
-            }
-          }
-        } catch (err) {
-          console.warn("投稿作成: インフォグラフィック生成エラー:", err);
-        }
-      }
+      // X-link 二重防御: APIレスポンス手前で全投稿に適用
+      threadPosts = threadPosts.map(stripXLinks);
 
       const posts = threadPosts.map((text, i) => ({
         text,
@@ -363,15 +343,15 @@ ${arrangeInstructionTheme}`.trim();
         data: {
           posts,
           thread_posts: threadPosts,
-          media_urls: fetchedMediaUrls,
-          source_url: source_url ?? null,
+          media_urls: [],
+          source_url: null,
           model: model_account_id ? "model" : "default",
           system_prompt: systemPrompt,
         },
       });
     }
 
-    // 3パターン単発投稿生成（新プロンプトエンジン）
+    // 3パターン単発投稿生成（テーマのみ、URLなし）
     let singleModelAnalysis: AnalysisResult | null = null;
     if (style === "model" && model_account_id) {
       const { data: modelAccount } = await supabase
@@ -403,17 +383,15 @@ ${arrangeInstructionTheme}`.trim();
       messages: [
         {
           role: "user",
-          content: `テーマ: ${theme}\n\n上記テーマでバズりやすいThreads投稿文を3パターン生成してください。JSON形式で返してください。`,
+          content: `テーマ: ${theme}\n\n上記テーマでバズりやすいThreads投稿文を3パターン生成してください。x.com/twitter.com URLは絶対に含めないでください。JSON形式で返してください。`,
         },
       ],
       system: systemPrompt,
     });
 
-    // レスポンスからJSON抽出
     const responseText =
       response.content[0].type === "text" ? response.content[0].text : "";
 
-    // JSONブロックを抽出（```json...```形式にも対応）
     let jsonStr = responseText;
     const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (jsonMatch) {
@@ -435,7 +413,6 @@ ${arrangeInstructionTheme}`.trim();
       const generated = JSON.parse(jsonStr);
       posts = Array.isArray(generated) ? generated : (generated.posts ?? []);
     } catch {
-      // JSON parse失敗時: 正規表現で文字列を抽出して復元
       const partialMatch = jsonStr.match(/"([^"]{10,})"/g);
       if (partialMatch && partialMatch.length > 0) {
         posts = partialMatch.map((s: string, i: number) => ({
@@ -448,6 +425,9 @@ ${arrangeInstructionTheme}`.trim();
         console.warn("単発JSON parse完全失敗 → レスポンスを1投稿として復元");
       }
     }
+
+    // X-link 二重防御
+    posts = posts.map((p) => ({ ...p, text: stripXLinks(p.text) }));
 
     return NextResponse.json({
       data: {

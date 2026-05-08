@@ -4,6 +4,12 @@ export interface UrlContent {
   text: string;
   url: string;
   mediaUrls: string[];
+  /** X変種から抽出したMP4動画URL（deepモード用、サイズ別に降順ソート） */
+  videoUrls?: string[];
+  /** Xの場合の著者ハンドル（@なし） */
+  authorHandle?: string;
+  /** Xの場合の投稿日時 (ISO 8601) */
+  postedAt?: string;
   /** X APIで取得したスレッド全投稿テキスト（xurl経由の場合のみ）*/
   xThreadTexts?: string[];
   error?: string;
@@ -11,6 +17,7 @@ export interface UrlContent {
 
 export type UrlTypeResult =
   | { type: "x"; tweetId: string; url: string }
+  | { type: "youtube"; videoId: string; url: string }
   | { type: "threads"; url: string }
   | { type: "article"; url: string }
   | { type: "unknown"; url: string };
@@ -35,6 +42,13 @@ export function detectUrlType(url: string): UrlTypeResult {
   );
   if (xMatch) {
     return { type: "x", tweetId: xMatch[1], url: normalized };
+  }
+
+  // YouTube: youtube.com/watch?v=, youtu.be/, youtube.com/shorts/
+  const ytMatch =
+    normalized.match(/(?:youtube\.com\/watch\?[^"]*?v=|youtu\.be\/|youtube\.com\/shorts\/|youtube\.com\/embed\/)([A-Za-z0-9_-]{11})/);
+  if (ytMatch) {
+    return { type: "youtube", videoId: ytMatch[1], url: normalized };
   }
 
   if (
@@ -64,6 +78,8 @@ export async function fetchUrlContent(url: string): Promise<UrlContent> {
         return fetchXPostWithMedia(detected.tweetId, detected.url);
       }
       return fetchXPostOembed(detected.tweetId, detected.url);
+    case "youtube":
+      return fetchYouTubeMeta(detected.videoId, detected.url);
     case "threads":
       return fetchThreadsPost(detected.url);
     case "article":
@@ -76,6 +92,60 @@ export async function fetchUrlContent(url: string): Promise<UrlContent> {
         mediaUrls: [],
         error: "Unsupported or invalid URL",
       };
+  }
+}
+
+/**
+ * YouTube動画のメタ情報のみ取得（実ダウンロードは ai-lab-bot 側 yt-dlp で実施）
+ * - oEmbed APIでタイトル・著者・サムネを取得
+ * - videoUrls には canonical URL を入れて worker 側で yt-dlp 解決
+ */
+async function fetchYouTubeMeta(
+  videoId: string,
+  originalUrl: string
+): Promise<UrlContent> {
+  const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  try {
+    const res = await fetch(
+      `https://www.youtube.com/oembed?url=${encodeURIComponent(watchUrl)}&format=json`,
+      { signal: AbortSignal.timeout(TIMEOUT_MS) }
+    );
+    if (!res.ok) {
+      return {
+        source: "youtube",
+        text: "",
+        url: originalUrl,
+        mediaUrls: [],
+        videoUrls: [watchUrl],
+        error: `YouTube oEmbed failed: ${res.status}`,
+      };
+    }
+    const data = (await res.json()) as {
+      title?: string;
+      author_name?: string;
+      thumbnail_url?: string;
+    };
+    const text = [data.title, data.author_name && `投稿者: ${data.author_name}`]
+      .filter(Boolean)
+      .join("\n");
+    return {
+      source: "youtube",
+      title: data.title,
+      text,
+      url: originalUrl,
+      mediaUrls: data.thumbnail_url ? [data.thumbnail_url] : [],
+      videoUrls: [watchUrl],
+      authorHandle: data.author_name,
+    };
+  } catch (err) {
+    return {
+      source: "youtube",
+      text: "",
+      url: originalUrl,
+      mediaUrls: [],
+      videoUrls: [watchUrl],
+      error: err instanceof Error ? err.message : "Failed to fetch YouTube meta",
+    };
   }
 }
 
@@ -107,7 +177,7 @@ export async function fetchXPostWithMedia(
       "expansions",
       "author_id,attachments.media_keys"
     );
-    tweetUrl.searchParams.set("media.fields", "url,type,preview_image_url");
+    tweetUrl.searchParams.set("media.fields", "url,type,preview_image_url,variants");
     tweetUrl.searchParams.set("user.fields", "username,name");
 
     const tweetRes = await fetch(tweetUrl.toString(), {
@@ -126,6 +196,7 @@ export async function fetchXPostWithMedia(
         text: string;
         author_id?: string;
         conversation_id?: string;
+        created_at?: string;
         attachments?: { media_keys?: string[] };
         entities?: {
           urls?: Array<{
@@ -144,6 +215,11 @@ export async function fetchXPostWithMedia(
           type: string;
           url?: string;
           preview_image_url?: string;
+          variants?: Array<{
+            content_type: string;
+            url: string;
+            bit_rate?: number;
+          }>;
         }>;
       };
     };
@@ -157,17 +233,29 @@ export async function fetchXPostWithMedia(
       tweetData.includes?.users?.find((u) => u.id === mainTweet.author_id)
         ?.username ?? "";
 
-    // メディアURL取得（画像優先、動画はpreview_image_urlを利用）
+    // メディアURL取得（画像優先、動画はpreview_image_url + MP4 variantを抽出）
     const mediaUrls: string[] = [];
+    const videoUrls: string[] = [];
     if (tweetData.includes?.media) {
       for (const m of tweetData.includes.media) {
         if (m.type === "photo" && m.url) {
           mediaUrls.push(m.url);
         } else if (
-          (m.type === "video" || m.type === "animated_gif") &&
-          m.preview_image_url
+          (m.type === "video" || m.type === "animated_gif")
         ) {
-          mediaUrls.push(m.preview_image_url);
+          if (m.preview_image_url) mediaUrls.push(m.preview_image_url);
+          // MP4 variantから 720p相当（bit_rate <= 2.5Mbps）を最優先で選び、なければ最高ビットレートを使う
+          const mp4s = (m.variants ?? []).filter(
+            (v) => v.content_type === "video/mp4"
+          );
+          const sorted = [...mp4s].sort(
+            (a, b) => (b.bit_rate ?? 0) - (a.bit_rate ?? 0)
+          );
+          const safe =
+            sorted.find((v) => (v.bit_rate ?? 0) <= 2_500_000) ??
+            sorted[sorted.length - 1] ??
+            sorted[0];
+          if (safe?.url) videoUrls.push(safe.url);
         }
       }
     }
@@ -251,7 +339,7 @@ export async function fetchXPostWithMedia(
           );
           searchUrl.searchParams.set("tweet.fields", "text,author_id,created_at,attachments");
           searchUrl.searchParams.set("expansions", "attachments.media_keys");
-          searchUrl.searchParams.set("media.fields", "url,type,preview_image_url");
+          searchUrl.searchParams.set("media.fields", "url,type,preview_image_url,variants");
           searchUrl.searchParams.set("max_results", "100");
           if (nextToken) searchUrl.searchParams.set("next_token", nextToken);
 
@@ -270,6 +358,11 @@ export async function fetchXPostWithMedia(
                 type: string;
                 url?: string;
                 preview_image_url?: string;
+                variants?: Array<{
+                  content_type: string;
+                  url: string;
+                  bit_rate?: number;
+                }>;
               }>;
             };
             meta?: { next_token?: string; result_count?: number };
@@ -282,10 +375,20 @@ export async function fetchXPostWithMedia(
                 if (m.type === "photo" && m.url) {
                   mediaUrls.push(m.url);
                 } else if (
-                  (m.type === "video" || m.type === "animated_gif") &&
-                  m.preview_image_url
+                  (m.type === "video" || m.type === "animated_gif")
                 ) {
-                  mediaUrls.push(m.preview_image_url);
+                  if (m.preview_image_url) mediaUrls.push(m.preview_image_url);
+                  const mp4s = (m.variants ?? []).filter(
+                    (v) => v.content_type === "video/mp4"
+                  );
+                  const sorted = [...mp4s].sort(
+                    (a, b) => (b.bit_rate ?? 0) - (a.bit_rate ?? 0)
+                  );
+                  const safe =
+                    sorted.find((v) => (v.bit_rate ?? 0) <= 2_500_000) ??
+                    sorted[sorted.length - 1] ??
+                    sorted[0];
+                  if (safe?.url) videoUrls.push(safe.url);
                 }
               }
             }
@@ -317,10 +420,11 @@ export async function fetchXPostWithMedia(
 
     // メディアURLの重複を除去
     const uniqueMediaUrls = [...new Set(mediaUrls)];
+    const uniqueVideoUrls = [...new Set(videoUrls)];
 
     const fullText = xThreadTexts.join("\n\n---\n\n");
 
-    console.log(`[url-fetcher] X API v2 success: tweetId=${tweetId}, author=@${authorUsername}, textLen=${fullText.length}, threadPosts=${xThreadTexts.length}, media=${uniqueMediaUrls.length}`);
+    console.log(`[url-fetcher] X API v2 success: tweetId=${tweetId}, author=@${authorUsername}, textLen=${fullText.length}, threadPosts=${xThreadTexts.length}, media=${uniqueMediaUrls.length}, videos=${uniqueVideoUrls.length}`);
     console.log(`[url-fetcher] X API v2 text preview: ${fullText.slice(0, 200)}`);
 
     return {
@@ -329,6 +433,9 @@ export async function fetchXPostWithMedia(
       text: fullText,
       url: originalUrl,
       mediaUrls: uniqueMediaUrls,
+      videoUrls: uniqueVideoUrls.length > 0 ? uniqueVideoUrls : undefined,
+      authorHandle: authorUsername || undefined,
+      postedAt: mainTweet.created_at,
       xThreadTexts,
     };
   } catch (err) {
