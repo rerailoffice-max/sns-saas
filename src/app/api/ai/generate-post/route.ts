@@ -3,7 +3,7 @@
  *
  * 3系統:
  *  - X URL (sync): sns-saas 内で fetchXPostWithMedia → Claude → Gemini画像生成
- *    まで同期実行し、ai_generate_jobs に done で書き込み。FE は1回ポーリングして完了。
+ *    まで同期実行し、ai_generate_jobs に done で書き込んで返す。
  *    （ai-lab-bot worker の X API 401 を回避する暫定路）
  *  - YouTube/article URL (deep): ai_generate_jobs に enqueue → ai-lab-bot worker が
  *    動画DL/文字起こし/Claude生成/ChatGPT解説画像 を実行 → 結果書き戻し。
@@ -24,7 +24,7 @@ import { uploadBufferImage } from "@/lib/media-uploader";
 import type { AnalysisResult } from "@/types/database";
 
 // X URL を同期処理する場合の Vercel Function 最大実行時間
-// 5投稿×Gemini画像並列で 60s 内には収まる想定だが、余裕を持って 300s に設定
+// X取得 + Claude + Gemini画像並列で 60-180s 想定、余裕を持って 300s
 export const maxDuration = 300;
 
 /**
@@ -149,7 +149,6 @@ export async function POST(request: NextRequest) {
     const urlType = detectUrlType(source_url).type;
 
     // X / Threads: sns-saas が同期で X API 取得 → Claude → Gemini画像 まで全部実行
-    // ai_generate_jobs に done で書き込んで FE のポーリング互換を維持
     if (urlType === "x" || urlType === "threads") {
       return handleSyncXOrThreads({
         supabase,
@@ -173,7 +172,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // YouTube / article: 既存 deep enqueue（Mac mini / 自宅 worker が処理）
+    // YouTube / article: 既存 deep enqueue（ai-lab-bot worker が処理）
     const params = {
       theme,
       account_id,
@@ -247,7 +246,6 @@ export async function POST(request: NextRequest) {
       apiKey: process.env.ANTHROPIC_API_KEY,
     });
 
-    // 貼付テキストありor thread_modeフラグあり → スレッド形式生成
     if (source_text || thread_mode) {
       let modelAnalysis: AnalysisResult | null = null;
       if (style === "model" && model_account_id) {
@@ -367,7 +365,6 @@ ${arrangeInstructionTheme}`.trim();
         }
       }
 
-      // X-link 二重防御: APIレスポンス手前で全投稿に適用
       threadPosts = threadPosts.map(stripXLinks);
 
       const posts = threadPosts.map((text, i) => ({
@@ -462,7 +459,6 @@ ${arrangeInstructionTheme}`.trim();
       }
     }
 
-    // X-link 二重防御
     posts = posts.map((p) => ({ ...p, text: stripXLinks(p.text) }));
 
     return NextResponse.json({
@@ -486,6 +482,7 @@ ${arrangeInstructionTheme}`.trim();
 
 /* ───────────────────────────────────────────────────────────
  * X / Threads URL 同期処理
+ *   応答返却前に全工程を await で実行（Vercel は応答後の async を kill するため）
  * ─────────────────────────────────────────────────────────── */
 
 interface SyncXParams {
@@ -518,7 +515,7 @@ async function handleSyncXOrThreads({
   sourceUrl: string;
   params: SyncXParams;
 }) {
-  // 1) ai_generate_jobs に processing として作成（FEのポーリング互換のため）
+  // 1) ai_generate_jobs に processing として作成（FEのポーリング互換のため、ジョブ履歴も残す）
   const { data: job, error: jobErr } = await supabase
     .from("ai_generate_jobs")
     .insert({
@@ -543,96 +540,96 @@ async function handleSyncXOrThreads({
 
   const jobId = job.id;
 
-  // 2) 非同期で同期処理を実行（レスポンスは即返す）
-  // Vercel maxDuration: 300秒以内に完了させる
-  (async () => {
-    try {
-      const urlContent = await fetchUrlContent(sourceUrl);
-      if (urlContent.error || !urlContent.text) {
-        await supabase
-          .from("ai_generate_jobs")
-          .update({
-            status: "error",
-            error: `URL取得失敗: ${urlContent.error ?? "コンテンツなし"}`,
-            completed_at: new Date().toISOString(),
-          })
-          .eq("id", jobId);
-        return;
-      }
-
+  // 2) 全工程を await で実行（Vercel maxDuration=300内に完了させる）
+  try {
+    const urlContent = await fetchUrlContent(sourceUrl);
+    if (urlContent.error || !urlContent.text) {
+      const msg = `URL取得失敗: ${urlContent.error ?? "コンテンツなし"}`;
       await supabase
         .from("ai_generate_jobs")
-        .update({ progress: "Claudeで投稿生成中…" })
+        .update({
+          status: "error",
+          error: msg,
+          completed_at: new Date().toISOString(),
+        })
         .eq("id", jobId);
-
-      // モデル分析
-      let modelAnalysis: AnalysisResult | null = null;
-      if (params.style === "model" && params.model_account_id) {
-        const { data: ma } = await supabase
-          .from("model_accounts")
-          .select("analysis_result")
-          .eq("id", params.model_account_id)
-          .eq("profile_id", userId)
-          .single();
-        modelAnalysis = (ma?.analysis_result as AnalysisResult) ?? null;
-      }
-
-      const { data: pf } = await supabase
-        .from("profiles")
-        .select("custom_writing_instructions")
-        .eq("id", userId)
-        .single();
-
-      const { data: recentPosts } = await supabase
-        .from("post_insights")
-        .select("post_text, likes")
-        .in(
-          "account_id",
-          (
-            await supabase
-              .from("social_accounts")
-              .select("id")
-              .eq("profile_id", userId)
-              .eq("is_active", true)
-          ).data?.map((a: { id: string }) => a.id) ?? []
-        )
-        .not("post_text", "is", null)
-        .order("likes", { ascending: false })
-        .limit(10);
-
-      const systemPrompt = buildPostPrompt({
-        platform: params.platform,
-        selectedModels: params.selected_models ?? [],
-        hookPattern: params.hook_pattern,
-        threadCount: params.thread_count,
-        customInstructions: params.custom_instructions,
-        longForm: params.long_form,
-        modelAnalysis,
-        writingInstructions:
-          params.style === "custom"
-            ? params.custom_instructions
-            : pf?.custom_writing_instructions ?? undefined,
-        topPostsContext:
-          recentPosts && recentPosts.length > 0
-            ? recentPosts.map((p: { post_text: string; likes: number }, i: number) => `${i + 1}. ${p.post_text} (いいね${p.likes})`).join("\n")
-            : undefined,
+      return NextResponse.json({
+        data: { job_id: jobId, mode: "deep", status: "error", error: msg },
       });
+    }
 
-      const articleBody = urlContent.text.slice(0, 4000);
-      const threadCountInstruction = params.thread_count === 1
-        ? "単発の長文投稿（500字以内）を1つ生成してください。"
-        : params.thread_count
-          ? `スレッドは${params.thread_count}件で構成してください。`
-          : "情報量に応じて最適なスレッド数（2-5件）を選んでください。";
-      const longFormInstruction = params.long_form
-        ? "★長文モード: 全投稿（フック除く）を400-500字の詳細解説にしてください。"
-        : "";
-      const arrangeInstruction = params.arrange_prompt
-        ? `★ユーザーのアレンジ指示: ${params.arrange_prompt}`
-        : "";
+    await supabase
+      .from("ai_generate_jobs")
+      .update({ progress: "Claudeで投稿生成中…" })
+      .eq("id", jobId);
 
-      const sourceLabel = urlContent.source === "x" ? "X（Twitter）投稿" : "Threads投稿";
-      const userContent = `以下の${sourceLabel}をもとに、バズりやすい日本語スレッド投稿を生成してください。
+    let modelAnalysis: AnalysisResult | null = null;
+    if (params.style === "model" && params.model_account_id) {
+      const { data: ma } = await supabase
+        .from("model_accounts")
+        .select("analysis_result")
+        .eq("id", params.model_account_id)
+        .eq("profile_id", userId)
+        .single();
+      modelAnalysis = (ma?.analysis_result as AnalysisResult) ?? null;
+    }
+
+    const { data: pf } = await supabase
+      .from("profiles")
+      .select("custom_writing_instructions")
+      .eq("id", userId)
+      .single();
+
+    const { data: recentPosts } = await supabase
+      .from("post_insights")
+      .select("post_text, likes")
+      .in(
+        "account_id",
+        (
+          await supabase
+            .from("social_accounts")
+            .select("id")
+            .eq("profile_id", userId)
+            .eq("is_active", true)
+        ).data?.map((a: { id: string }) => a.id) ?? []
+      )
+      .not("post_text", "is", null)
+      .order("likes", { ascending: false })
+      .limit(10);
+
+    const systemPrompt = buildPostPrompt({
+      platform: params.platform,
+      selectedModels: params.selected_models ?? [],
+      hookPattern: params.hook_pattern,
+      threadCount: params.thread_count,
+      customInstructions: params.custom_instructions,
+      longForm: params.long_form,
+      modelAnalysis,
+      writingInstructions:
+        params.style === "custom"
+          ? params.custom_instructions
+          : pf?.custom_writing_instructions ?? undefined,
+      topPostsContext:
+        recentPosts && recentPosts.length > 0
+          ? recentPosts.map((p: { post_text: string; likes: number }, i: number) => `${i + 1}. ${p.post_text} (いいね${p.likes})`).join("\n")
+          : undefined,
+    });
+
+    const articleBody = urlContent.text.slice(0, 4000);
+    const threadCountInstruction = params.thread_count === 1
+      ? "単発の長文投稿（500字以内）を1つ生成してください。"
+      : params.thread_count
+        ? `スレッドは${params.thread_count}件で構成してください。`
+        : "情報量に応じて最適なスレッド数（2-5件）を選んでください。";
+    const longFormInstruction = params.long_form
+      ? "★長文モード: 全投稿（フック除く）を400-500字の詳細解説にしてください。"
+      : "";
+    const arrangeInstruction = params.arrange_prompt
+      ? `★ユーザーのアレンジ指示: ${params.arrange_prompt}`
+      : "";
+
+    const sourceLabel = urlContent.source === "x" ? "X（Twitter）投稿" : "Threads投稿";
+    const userContent = `以下の${sourceLabel}をもとに、バズりやすい日本語スレッド投稿を生成してください。
 
 ## 元${sourceLabel}（スレッド全文）
 URL: ${urlContent.url}
@@ -649,114 +646,116 @@ ${articleBody}
 ${longFormInstruction}
 ${arrangeInstruction}`.trim();
 
-      const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
-      const response = await anthropic.messages.create({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 8192,
-        messages: [{ role: "user", content: userContent }],
-        system: systemPrompt,
-      });
+    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 8192,
+      messages: [{ role: "user", content: userContent }],
+      system: systemPrompt,
+    });
 
-      const responseText =
-        response.content[0].type === "text" ? response.content[0].text : "";
-      let jsonStr = responseText;
-      const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (jsonMatch) jsonStr = jsonMatch[1].trim();
-      else {
-        const arrayMatch = responseText.match(/\[[\s\S]*\]/);
-        if (arrayMatch) jsonStr = arrayMatch[0];
+    const responseText =
+      response.content[0].type === "text" ? response.content[0].text : "";
+    let jsonStr = responseText;
+    const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (jsonMatch) jsonStr = jsonMatch[1].trim();
+    else {
+      const arrayMatch = responseText.match(/\[[\s\S]*\]/);
+      if (arrayMatch) jsonStr = arrayMatch[0];
+    }
+
+    let threadPosts: string[] = [];
+    try {
+      const parsed = JSON.parse(jsonStr);
+      threadPosts = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      const partial = jsonStr.match(/"([^"]+)"/g);
+      if (partial && partial.length > 0) {
+        threadPosts = partial.map((s) => s.slice(1, -1).replace(/\\n/g, "\n").replace(/\\"/g, '"'));
+      } else {
+        threadPosts = [responseText.slice(0, 500)];
       }
+    }
+    threadPosts = threadPosts.map(stripXLinks).filter((t) => t.trim().length > 0);
 
-      let threadPosts: string[] = [];
-      try {
-        const parsed = JSON.parse(jsonStr);
-        threadPosts = Array.isArray(parsed) ? parsed : [];
-      } catch {
-        const partial = jsonStr.match(/"([^"]+)"/g);
-        if (partial && partial.length > 0) {
-          threadPosts = partial.map((s) => s.slice(1, -1).replace(/\\n/g, "\n").replace(/\\"/g, '"'));
-        } else {
-          threadPosts = [responseText.slice(0, 500)];
-        }
-      }
-      threadPosts = threadPosts.map(stripXLinks).filter((t) => t.trim().length > 0);
-
-      if (threadPosts.length === 0) {
-        await supabase
-          .from("ai_generate_jobs")
-          .update({
-            status: "error",
-            error: "Claudeが投稿を生成できませんでした",
-            completed_at: new Date().toISOString(),
-          })
-          .eq("id", jobId);
-        return;
-      }
-
-      // 3) 各投稿に Gemini Flash Image で画像を並列生成
-      await supabase
-        .from("ai_generate_jobs")
-        .update({ progress: `画像生成中（${threadPosts.length}枚並列）…` })
-        .eq("id", jobId);
-
-      const articleTitle = urlContent.title || params.theme || "X投稿のまとめ";
-      const articleSummary = articleBody.slice(0, 800);
-
-      const imagePromises = threadPosts.map(async (postText, i) => {
-        try {
-          const imgResult = await generateInfographicImage({
-            articleTitle,
-            articleSummary,
-            threadPosts: [postText],
-          });
-          if (!imgResult) return null;
-          const slug = `sync-x-${jobId}-${i}-${Date.now().toString(36)}`;
-          const url = await uploadBufferImage(imgResult.buffer, imgResult.mimeType, slug);
-          return url ?? null;
-        } catch (err) {
-          console.warn(`[sync-X] post${i + 1} image gen failed:`, err instanceof Error ? err.message : err);
-          return null;
-        }
-      });
-      const imageUrls = await Promise.all(imagePromises);
-
-      const postsWithMedia = threadPosts.map((text, i) => ({
-        text,
-        media_url: imageUrls[i] || null,
-        media_type: "image" as const,
-      }));
-
-      await supabase
-        .from("ai_generate_jobs")
-        .update({
-          status: "done",
-          progress: "完了",
-          result_json: {
-            posts: postsWithMedia,
-            source_kind: urlContent.source,
-            tweet_id: detectUrlType(sourceUrl).type === "x"
-              ? (detectUrlType(sourceUrl) as { tweetId?: string }).tweetId ?? null
-              : null,
-          },
-          completed_at: new Date().toISOString(),
-        })
-        .eq("id", jobId);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error("[sync-X] error:", msg);
+    if (threadPosts.length === 0) {
+      const msg = "Claudeが投稿を生成できませんでした";
       await supabase
         .from("ai_generate_jobs")
         .update({
           status: "error",
-          error: msg.slice(0, 480),
+          error: msg,
           completed_at: new Date().toISOString(),
         })
         .eq("id", jobId);
+      return NextResponse.json({
+        data: { job_id: jobId, mode: "deep", status: "error", error: msg },
+      });
     }
-  })();
 
-  // 即座に job_id を返す（FEは3秒間隔でポーリング）
-  return NextResponse.json({
-    data: { job_id: jobId, mode: "deep", status: "processing" },
-  });
+    await supabase
+      .from("ai_generate_jobs")
+      .update({ progress: `画像生成中（${threadPosts.length}枚並列）…` })
+      .eq("id", jobId);
+
+    const articleTitle = urlContent.title || params.theme || "X投稿のまとめ";
+    const articleSummary = articleBody.slice(0, 800);
+
+    const imagePromises = threadPosts.map(async (postText, i) => {
+      try {
+        const imgResult = await generateInfographicImage({
+          articleTitle,
+          articleSummary,
+          threadPosts: [postText],
+        });
+        if (!imgResult) return null;
+        const slug = `sync-x-${jobId}-${i}-${Date.now().toString(36)}`;
+        const url = await uploadBufferImage(imgResult.buffer, imgResult.mimeType, slug);
+        return url ?? null;
+      } catch (err) {
+        console.warn(`[sync-X] post${i + 1} image gen failed:`, err instanceof Error ? err.message : err);
+        return null;
+      }
+    });
+    const imageUrls = await Promise.all(imagePromises);
+
+    const postsWithMedia = threadPosts.map((text, i) => ({
+      text,
+      media_url: imageUrls[i] || null,
+      media_type: "image" as const,
+    }));
+
+    const detected = detectUrlType(sourceUrl);
+    await supabase
+      .from("ai_generate_jobs")
+      .update({
+        status: "done",
+        progress: "完了",
+        result_json: {
+          posts: postsWithMedia,
+          source_kind: urlContent.source,
+          tweet_id: detected.type === "x" ? detected.tweetId : null,
+        },
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", jobId);
+
+    return NextResponse.json({
+      data: { job_id: jobId, mode: "deep", status: "done" },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[sync-X] error:", msg);
+    await supabase
+      .from("ai_generate_jobs")
+      .update({
+        status: "error",
+        error: msg.slice(0, 480),
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", jobId);
+    return NextResponse.json({
+      data: { job_id: jobId, mode: "deep", status: "error", error: msg.slice(0, 200) },
+    });
+  }
 }
