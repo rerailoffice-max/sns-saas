@@ -63,7 +63,10 @@ export function FollowersChart({ data }: FollowersChartProps) {
   }
 
   const filledData = fillDateGaps(data);
-  const showDots = filledData.length <= 14;
+  // 2026-05-30 fix: 以前は点数 >14 でドットを非表示にしており、30日分(約31点)では
+  //   折れ線だけ表示されてホバーしないと各日の点が見えなかった（ユーザー指摘）。
+  //   ドットは常時表示し、点が多いときだけ半径を小さくして潰れを防ぐ。
+  const dotRadius = filledData.length > 60 ? 1.5 : filledData.length > 30 ? 2.5 : 3.5;
 
   return (
     <ResponsiveContainer width="100%" height="100%">
@@ -97,7 +100,7 @@ export function FollowersChart({ data }: FollowersChartProps) {
           dataKey="count"
           stroke="hsl(var(--primary))"
           strokeWidth={2}
-          dot={showDots ? { r: 3, fill: "hsl(var(--primary))" } : false}
+          dot={{ r: dotRadius, fill: "hsl(var(--primary))", strokeWidth: 0 }}
           activeDot={{ r: 5 }}
           connectNulls
         />
