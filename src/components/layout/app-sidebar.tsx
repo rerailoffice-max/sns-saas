@@ -15,11 +15,13 @@ import {
   Users,
   Settings,
   Flame,
+  Clapperboard,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { label: "ダッシュボード", href: "/dashboard", icon: LayoutDashboard, sub: "" },
+  { label: "投稿スタジオ", href: "/studio", icon: Clapperboard, sub: "URL→図解ツリー" },
   { label: "投稿作成", href: "/compose", icon: PenSquare, sub: "" },
   { label: "下書き", href: "/drafts", icon: FileText, sub: "" },
   { label: "予約管理", href: "/schedule", icon: Calendar, sub: "" },
