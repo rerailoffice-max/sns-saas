@@ -15,6 +15,7 @@ import {
   Users,
   Settings,
   Flame,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +26,7 @@ const navItems = [
   { label: "予約管理", href: "/schedule", icon: Calendar, sub: "" },
   { label: "分析", href: "/analytics", icon: BarChart3, sub: "実績を俯瞰" },
   { label: "バズツール", href: "/buzz", icon: Flame, sub: "バズる型を発見" },
+  { label: "リサーチ", href: "/research", icon: Search, sub: "公開投稿と競合を調べる" },
   { label: "モデリング", href: "/models", icon: Users, sub: "" },
   { label: "設定", href: "/settings", icon: Settings, sub: "" },
 ];

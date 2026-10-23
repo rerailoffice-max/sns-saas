@@ -131,6 +131,15 @@ export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // 画面からの自動収集は、Metaの規約（許可のない自動収集の禁止）に合わせて既定で止めている。
+  // 使うときだけ ENABLE_SCRAPING=1 にする
+  if (process.env.ENABLE_SCRAPING !== "1") {
+    return NextResponse.json(
+      { error: "この機能は停止しています / This feature is disabled." },
+      { status: 403 }
+    );
+  }
+
   const { id } = await params;
   const supabase = await createClient();
   const {

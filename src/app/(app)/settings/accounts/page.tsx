@@ -116,7 +116,7 @@ function AccountsView({
             <Button asChild>
               <a href="/api/threads/connect">
                 <Plus className="mr-2 h-4 w-4" />
-                Threadsを接続
+                Threadsを接続 / Connect Threads
                 <ExternalLink className="ml-2 h-3 w-3" />
               </a>
             </Button>
