@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "postinstall": "node scripts/apply-security-patches.mjs",
+    "security:patch": "node scripts/apply-security-patches.mjs",
+    "security:verify": "node scripts/apply-security-patches.mjs --check"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
