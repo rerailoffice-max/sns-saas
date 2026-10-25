@@ -227,9 +227,14 @@ export default async function ModelDetailPage({
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
-              <ScrapingStatus modelId={id} postsCount={typedPosts.length} />
-              {typedPosts.length === 0 && (
-                <ImportResearchButton modelId={id} />
+              {/* 画面からの自動収集はMetaの規約に合わせて既定で止めている（NEXT_PUBLIC_ENABLE_SCRAPING=1 のときだけ表示） */}
+              {process.env.NEXT_PUBLIC_ENABLE_SCRAPING === "1" && (
+                <>
+                  <ScrapingStatus modelId={id} postsCount={typedPosts.length} />
+                  {typedPosts.length === 0 && (
+                    <ImportResearchButton modelId={id} />
+                  )}
+                </>
               )}
               <Badge
                 variant={

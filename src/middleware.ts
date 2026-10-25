@@ -17,6 +17,7 @@ const PUBLIC_ROUTES = [
   "/pricing",
   "/terms",
   "/privacy",
+  "/deletion-status",
 ];
 
 /** 認証ページ（ログイン済みの場合はダッシュボードへリダイレクト） */
@@ -35,6 +36,7 @@ const PROTECTED_PREFIXES = [
   "/schedule",
   "/analytics",
   "/models",
+  "/research",
   "/settings",
   "/onboarding",
 ];
